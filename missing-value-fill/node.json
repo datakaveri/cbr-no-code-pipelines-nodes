@@ -25,7 +25,7 @@
         "parameters": {
             "type": "json",
             "label": "Columns to fill",
-            "description": "Map of column name to the range(s) its values may validly take. Values outside every range are treated as missing. Shorthand: a bare list of ranges.",
+            "description": "Map of column name to the range(s) its values may validly take. Values outside every range are treated as missing. Only the numeric columns listed here are filled — every other column is passed through with its gaps intact. Use an empty list to fill a column without a validity check, e.g. {\"mmse\": []}. Shorthand: a bare list of ranges.",
             "required": true,
             "order": 2,
             "placeholder": "{\"clinical:hmse_score0_score_total\": [[1, 50]], \"cognitive:EP24DF (implicit memory)\": {\"ranges\": [[-2.2, -1.2], [-0.8, 6.2]], \"exclude_ranges\": []}}"
@@ -72,9 +72,9 @@
         "emit_full_grid": {
             "type": "boolean",
             "label": "Emit a row for every timepoint",
-            "description": "Pad each participant to one row per timepoint, blank where they did not attend, giving a balanced panel.",
+            "description": "Pad each participant to one row per timepoint, giving a balanced panel for modelling. Padded rows are visits that did not happen: participant-level columns are copied onto them, measurements stay blank. Adds blank cells rather than removing them, so leave this off unless a downstream step needs a rectangular panel.",
             "required": false,
-            "default": true,
+            "default": false,
             "order": 7
         },
         "timepoint_column": {

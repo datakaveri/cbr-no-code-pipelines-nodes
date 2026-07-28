@@ -166,6 +166,29 @@ def _mask_for(values: pd.Series, intervals: list[tuple[float, float]]) -> pd.Ser
     return mask
 
 
+def to_numeric_strict(raw: pd.Series, column: str) -> pd.Series:
+    """Coerce to numbers, but refuse to silently destroy a non-numeric column.
+
+    Plain `to_numeric(errors="coerce")` turns text into NaN, so configuring a
+    string column (a sex code, a site name) would blank every value and report
+    it as 'still missing' rather than as a mistake.
+    """
+    if raw.dtype == object:
+        # Empty strings are missing data, not unparseable data.
+        raw = raw.mask(raw.map(lambda v: isinstance(v, str) and not v.strip()))
+
+    numeric = pd.to_numeric(raw, errors="coerce")
+    unparseable = raw.notna() & numeric.isna()
+    if unparseable.any():
+        examples = ", ".join(repr(v) for v in raw[unparseable].unique()[:3])
+        raise ValueError(
+            f"Column '{column}' is configured in 'Columns to fill' but holds "
+            f"non-numeric values ({examples}). Carrying values forward is only "
+            "defined for numeric measures — remove this column from the config."
+        )
+    return numeric
+
+
 def fill_column(
     df: pd.DataFrame,
     column: str,
@@ -175,7 +198,7 @@ def fill_column(
     max_carry: int | None,
 ) -> tuple[pd.Series, dict]:
     """Return the filled column and a report row. `df` must already be sorted."""
-    values = pd.to_numeric(df[column], errors="coerce")
+    values = to_numeric_strict(df[column], column)
 
     ranges = spec["ranges"]
     # No declared range means every non-null value is acceptable.
@@ -213,10 +236,43 @@ def fill_column(
     }
 
 
+def invariant_columns(
+    df: pd.DataFrame, participant_col: str, protected: set[str]
+) -> list[str]:
+    """Columns proven constant within every participant, so safe to copy onto a padded row.
+
+    Two conditions, and the second is the one that matters. A column must never take
+    two different values for the same participant, AND some participant must have been
+    observed in it at least twice — otherwise 'constant' just means 'recorded once and
+    blank after', which describes every per-visit measurement in a sparse table. Copying
+    one of those onto a visit that never happened would fabricate an observation.
+    """
+    candidates = []
+    for column in df.columns:
+        if column in protected:
+            continue
+        grouped = df.groupby(participant_col)[column]
+        if not (grouped.nunique(dropna=True) <= 1).all():
+            continue
+        if grouped.count().max() < 2:  # never seen twice for anyone: no evidence
+            continue
+        candidates.append(column)
+    return candidates
+
+
 def add_placeholder_rows(
-    df: pd.DataFrame, participant_col: str, order_col: str, timepoint_col: str | None
+    df: pd.DataFrame,
+    participant_col: str,
+    order_col: str,
+    timepoint_col: str | None,
+    protected: set[str] | None = None,
 ) -> pd.DataFrame:
-    """Pad every participant out to one row per timepoint, blank where absent."""
+    """Pad every participant out to one row per timepoint, blank where absent.
+
+    Participant-level facts (sex, site, cohort) are copied onto the padded rows —
+    they are true whether or not the visit happened. Per-visit measurements, the
+    attendance column and anything being filled stay blank: `protected` names them.
+    """
     indices = pd.to_numeric(df[order_col], errors="coerce").dropna()
     if indices.empty:
         return df
@@ -228,6 +284,21 @@ def add_placeholder_rows(
         if pd.notna(index)
     }
 
+    protected = set(protected or ()) | {participant_col, order_col}
+    if timepoint_col:
+        protected.add(timepoint_col)
+    static = invariant_columns(df, participant_col, protected)
+    if static:
+        log(f"Carrying participant-level column(s) onto padded rows: {', '.join(static)}")
+    # The first row of a participant may itself be blank in a static column, so take
+    # the first value they actually have.
+    static_values = {
+        column: df.groupby(participant_col)[column].apply(
+            lambda s: s.dropna().iloc[0] if s.notna().any() else np.nan
+        )
+        for column in static
+    }
+
     blanks = []
     for participant in df[participant_col].unique():
         for index in range(1, max_observed + 1):
@@ -235,6 +306,8 @@ def add_placeholder_rows(
                 row = {participant_col: participant, order_col: index, "is_placeholder": True}
                 if timepoint_col:
                     row[timepoint_col] = f"T{index}"
+                for column in static:
+                    row[column] = static_values[column].get(participant, np.nan)
                 blanks.append(row)
 
     df = df.copy()
@@ -251,7 +324,7 @@ def process(df: pd.DataFrame, config: dict) -> tuple[pd.DataFrame, pd.DataFrame]
     order_col = str(config.get("order_column") or "timepoint_index").strip()
     attendance_col = (config.get("attendance_column") or "").strip()
     timepoint_col = (config.get("timepoint_column") or "timepoint").strip()
-    emit_grid = bool(config.get("emit_full_grid", True))
+    emit_grid = bool(config.get("emit_full_grid", False))
     raw_max_carry = config.get("max_carry")
     max_carry = int(raw_max_carry) if raw_max_carry not in (None, "") else None
 
@@ -281,7 +354,13 @@ def process(df: pd.DataFrame, config: dict) -> tuple[pd.DataFrame, pd.DataFrame]
     if emit_grid:
         before = len(df)
         df = add_placeholder_rows(
-            df, participant_col, order_col, timepoint_col if timepoint_col in df.columns else None
+            df,
+            participant_col,
+            order_col,
+            timepoint_col if timepoint_col in df.columns else None,
+            # A padded row is a visit that did not happen: it must never claim
+            # attendance, and never carry a measurement we are about to fill.
+            protected={attendance_col, *parameters} - {""},
         )
         log(f"Padded to a full participant x timepoint grid: {before} -> {len(df)} row(s)")
     elif "is_placeholder" not in df.columns:
