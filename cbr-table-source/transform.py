@@ -33,7 +33,7 @@ from cbr_data_access import DataAccessClient
 from cbr_data_access.exceptions import AuthenticationError, DataAccessError
 
 # Bump this on every code change so a run's logs prove which build is live.
-NODE_VERSION = "2026-07-15.1-api-key-auth"
+NODE_VERSION = "2026-07-29.1-version-test-a"
 
 
 def log(msg):
