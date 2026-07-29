@@ -226,6 +226,18 @@ def fill_column(
     imputed = int((filled.notna() & ~values.where(is_valid).notna() & attended).sum())
     still_missing = int((filled.isna() & attended).sum())
 
+    # A range that throws away most of a column is almost always a range that does not
+    # describe the data — e.g. [[1, 5]] on a baseline offset, where 0 is the correct
+    # value for every first visit. Say so, because the blanking is otherwise silent.
+    if ranges and present_before and out_of_range / present_before > 0.5:
+        observed = values[values.notna() & attended]
+        log(
+            f"WARNING: {column}: {out_of_range} of {present_before} value(s) fall outside "
+            f"{json.dumps(ranges)} and were blanked. Observed values run "
+            f"{observed.min():g} to {observed.max():g} — check the configured range "
+            "actually covers legitimate data before trusting this output."
+        )
+
     return filled, {
         "column": column,
         "valid_ranges": json.dumps(ranges) if ranges else "any",
