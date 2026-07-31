@@ -1,6 +1,6 @@
 {
   "name": "Patient Measurement Clustering Image",
-  "githubUrl": "https://github.com/<your-github-username>/custom-clustering-original",
+  "githubUrl": "https://github.com/pradeep800/pipelines-nodes",
   "githubRef": "main",
   "dockerfilePath": "Dockerfile",
   "dockerContext": "patient-measurement-clustering"

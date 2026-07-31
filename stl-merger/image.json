@@ -1,6 +1,6 @@
 {
   "name": "STL Merger Image",
-  "githubUrl": "https://github.com/<repo-link>",
+  "githubUrl": "https://github.com/pradeep800/pipelines-nodes",
   "githubRef": "main",
   "dockerfilePath": "Dockerfile",
   "dockerContext": "stl-merger"
