@@ -4,8 +4,6 @@
   "name": "Outlier Remover",
   "shortDescription": "Remove rows with outlier values from the dataset",
   "description": "Detects and removes outlier rows using IQR (simple percentile-based), Z-Score, or Isolation Forest (ML-based). Useful for cleaning data before analysis or visualization in Superset.",
-  "githubUrl": "https://github.com/<repo-link>",
-  "githubRef": "main",
   "lucideIcon": "Filter",
   "color": "#f97316",
   "hasInput": true,
@@ -29,9 +27,18 @@
       "required": true,
       "unique": false,
       "options": [
-        { "value": "iqr", "label": "IQR (Interquartile Range)" },
-        { "value": "zscore", "label": "Z-Score" },
-        { "value": "isolation_forest", "label": "Isolation Forest (ML-based)" }
+        {
+          "value": "iqr",
+          "label": "IQR (Interquartile Range)"
+        },
+        {
+          "value": "zscore",
+          "label": "Z-Score"
+        },
+        {
+          "value": "isolation_forest",
+          "label": "Isolation Forest (ML-based)"
+        }
       ]
     },
     "columns": {
@@ -62,8 +69,6 @@
   ],
   "implementation": {
     "type": "container",
-    "entrypoint": "python transform.py",
-    "dockerfilePath": "Dockerfile",
-    "dockerContext": "outlier-remover"
+    "entrypoint": "python transform.py"
   }
 }

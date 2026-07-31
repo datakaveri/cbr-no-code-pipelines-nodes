@@ -1,0 +1,7 @@
+{
+  "name": "Sleep Image",
+  "githubUrl": "https://github.com/<repo-link>",
+  "githubRef": "main",
+  "dockerfilePath": "Dockerfile",
+  "dockerContext": "sleep"
+}

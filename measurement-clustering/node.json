@@ -4,8 +4,6 @@
   "name": "Patient Measurement Clustering",
   "shortDescription": "Cluster patients by clinical measurement scores using KMeans",
   "description": "Takes an OMOP-format measurement table and clusters patients based on their clinical scores (e.g. HAM-D, PSQI, CDR). Pivots the data so each patient becomes one row, runs KMeans clustering plus PCA, and outputs a per-patient summary table with PCA coordinates, a severity cluster label, and clinical summary scores. Useful for identifying patient subgroups and plotting them as a scatter chart in Superset.",
-  "githubUrl": "https://github.com/<repo-link>",
-  "githubRef": "main",
   "lucideIcon": "Users",
   "color": "#10b981",
   "hasInput": true,
@@ -29,10 +27,22 @@
       "required": false,
       "unique": false,
       "options": [
-        { "value": "2", "label": "2 clusters" },
-        { "value": "3", "label": "3 clusters (default)" },
-        { "value": "4", "label": "4 clusters" },
-        { "value": "5", "label": "5 clusters" }
+        {
+          "value": "2",
+          "label": "2 clusters"
+        },
+        {
+          "value": "3",
+          "label": "3 clusters (default)"
+        },
+        {
+          "value": "4",
+          "label": "4 clusters"
+        },
+        {
+          "value": "5",
+          "label": "5 clusters"
+        }
       ]
     }
   },
@@ -47,8 +57,6 @@
   ],
   "implementation": {
     "type": "container",
-    "entrypoint": "python transform.py",
-    "dockerfilePath": "Dockerfile",
-    "dockerContext": "measurement-clustering"
+    "entrypoint": "python transform.py"
   }
 }

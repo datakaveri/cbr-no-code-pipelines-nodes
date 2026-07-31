@@ -2,10 +2,8 @@
   "version": "1.0",
   "nodeType": "processing",
   "name": "Hello CSV Source",
-  "shortDescription": "Generate a small synthetic patient-vitals CSV — a zero-dependency source for smoke-testing pipelines",
+  "shortDescription": "Generate a small synthetic patient-vitals CSV \u2014 a zero-dependency source for smoke-testing pipelines",
   "description": "Generates a configurable number of rows of synthetic patient vitals (id, name, age, heart rate, temperature) and writes them as a CSV to the artifact bucket. Needs no upstream input and no uploaded files, so it is the fastest way to smoke-test a fresh platform install: if this node builds and runs, the registry, Argo, STS credentials, and artifact storage all work.",
-  "githubUrl": "https://github.com/pradeep800/pipelines-nodes",
-  "githubRef": "main",
   "lucideIcon": "FileSpreadsheet",
   "color": "#10b981",
   "hasInput": false,
@@ -48,8 +46,6 @@
   ],
   "implementation": {
     "type": "container",
-    "entrypoint": "python main.py",
-    "dockerfilePath": "Dockerfile",
-    "dockerContext": "hello-csv-source"
+    "entrypoint": "python main.py"
   }
 }

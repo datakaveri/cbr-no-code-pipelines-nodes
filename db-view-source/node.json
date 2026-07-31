@@ -4,8 +4,6 @@
   "name": "DB View Source",
   "shortDescription": "Fetch a view from the CBR data platform",
   "description": "Authenticates with the CBR Keycloak, downloads a specified view from the CBR data-access server using the cbr-data-access SDK, and stores the result in MinIO as Parquet for downstream nodes.",
-  "githubUrl": "https://github.com/<repo-link>",
-  "githubRef": "main",
   "lucideIcon": "DatabaseZap",
   "color": "#6366f1",
   "hasInput": false,
@@ -37,7 +35,7 @@
       "description": "Your CBR login password",
       "required": true,
       "unique": false,
-      "placeholder": "••••••••",
+      "placeholder": "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022",
       "order": 2
     },
     "view_name": {
@@ -61,8 +59,6 @@
   ],
   "implementation": {
     "type": "container",
-    "entrypoint": "python fetch.py",
-    "dockerfilePath": "Dockerfile",
-    "dockerContext": "db-view-source"
+    "entrypoint": "python fetch.py"
   }
 }

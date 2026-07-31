@@ -1,0 +1,7 @@
+{
+  "name": "Visit Timepoint Assignment Image",
+  "githubUrl": "https://github.com/pradeep800/pipelines-nodes",
+  "githubRef": "main",
+  "dockerfilePath": "Dockerfile",
+  "dockerContext": "timepoint-assignment"
+}

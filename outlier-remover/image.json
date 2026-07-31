@@ -1,0 +1,7 @@
+{
+  "name": "Outlier Remover Image",
+  "githubUrl": "https://github.com/<repo-link>",
+  "githubRef": "main",
+  "dockerfilePath": "Dockerfile",
+  "dockerContext": "outlier-remover"
+}

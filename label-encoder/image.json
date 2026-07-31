@@ -1,0 +1,7 @@
+{
+  "name": "Label Encoder Image",
+  "githubUrl": "https://github.com/<repo-link>",
+  "githubRef": "main",
+  "dockerfilePath": "Dockerfile",
+  "dockerContext": "label-encoder"
+}

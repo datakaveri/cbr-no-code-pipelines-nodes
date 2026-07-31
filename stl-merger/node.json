@@ -4,8 +4,6 @@
   "name": "STL Merger",
   "shortDescription": "Generate a merged STL model as a single STL artifact",
   "description": "Runs the STL merger container and writes a single merged STL file to the pipeline artifacts location. This node does not accept upstream inputs and only requires a unique node name.",
-  "githubUrl": "https://github.com/<repo-link>",
-  "githubRef": "main",
   "lucideIcon": "Layers",
   "color": "#64748b",
   "hasInput": false,
@@ -33,8 +31,6 @@
   ],
   "implementation": {
     "type": "container",
-    "entrypoint": "python merge.py",
-    "dockerfilePath": "Dockerfile",
-    "dockerContext": "stl-merger"
+    "entrypoint": "python merge.py"
   }
 }

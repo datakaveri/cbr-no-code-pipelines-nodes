@@ -1,0 +1,7 @@
+{
+  "name": "Patient Measurement Clustering Image",
+  "githubUrl": "https://github.com/<your-github-username>/custom-clustering-original",
+  "githubRef": "main",
+  "dockerfilePath": "Dockerfile",
+  "dockerContext": "patient-measurement-clustering"
+}

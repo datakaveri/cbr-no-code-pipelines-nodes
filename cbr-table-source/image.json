@@ -1,0 +1,7 @@
+{
+  "name": "DB Table Source Image",
+  "githubUrl": "https://github.com/<repo-link>",
+  "githubRef": "main",
+  "dockerfilePath": "Dockerfile",
+  "dockerContext": "cbr-table-source"
+}

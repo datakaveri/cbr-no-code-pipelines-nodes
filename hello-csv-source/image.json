@@ -1,0 +1,7 @@
+{
+  "name": "Hello CSV Source Image",
+  "githubUrl": "https://github.com/pradeep800/pipelines-nodes",
+  "githubRef": "main",
+  "dockerfilePath": "Dockerfile",
+  "dockerContext": "hello-csv-source"
+}

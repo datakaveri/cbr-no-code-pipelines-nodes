@@ -30,8 +30,6 @@
   ],
   "implementation": {
     "type": "container",
-    "entrypoint": "python merge_stl.py",
-    "dockerfilePath": "Dockerfile",
-    "dockerContext": "3-d-merger"
+    "entrypoint": "python merge_stl.py"
   }
 }

@@ -3,9 +3,7 @@
   "nodeType": "processing",
   "name": "OMOP Wide Table Source",
   "shortDescription": "Export a wide-format view of your granted OMOP cohort data",
-  "description": "Builds a wide-format table from your approved access request: one row per dataset per subject-visit, one column per source field. Every dataset your request grants is exported into a single sheet with a 'dataset' column naming each row's source, so a downstream SQL node can narrow it with WHERE dataset = '…'. Datasets do not share field columns, so a row is empty in the columns belonging to other datasets. Authenticates as the user who ran the pipeline using the API key injected by Argo (no credentials stored in the pipeline), and stores the result as Parquet for downstream nodes.",
-  "githubUrl": "https://github.com/<repo-link>",
-  "githubRef": "main",
+  "description": "Builds a wide-format table from your approved access request: one row per dataset per subject-visit, one column per source field. Every dataset your request grants is exported into a single sheet with a 'dataset' column naming each row's source, so a downstream SQL node can narrow it with WHERE dataset = '\u2026'. Datasets do not share field columns, so a row is empty in the columns belonging to other datasets. Authenticates as the user who ran the pipeline using the API key injected by Argo (no credentials stored in the pipeline), and stores the result as Parquet for downstream nodes.",
   "lucideIcon": "Table2",
   "color": "#0ea5e9",
   "hasInput": false,
@@ -28,7 +26,7 @@
       "description": "Pick one of your approved access requests. Its use case is shown here; the request id is stored and used when the pipeline runs.",
       "required": true,
       "unique": false,
-      "placeholder": "Select a use case…",
+      "placeholder": "Select a use case\u2026",
       "order": 1
     },
     "cohort": {
@@ -41,9 +39,18 @@
       "default": "__all__",
       "order": 2,
       "options": [
-        { "value": "__all__", "label": "All granted cohorts" },
-        { "value": "SANSCOG", "label": "SANSCOG" },
-        { "value": "TLSA", "label": "TLSA" }
+        {
+          "value": "__all__",
+          "label": "All granted cohorts"
+        },
+        {
+          "value": "SANSCOG",
+          "label": "SANSCOG"
+        },
+        {
+          "value": "TLSA",
+          "label": "TLSA"
+        }
       ]
     }
   },
@@ -58,8 +65,6 @@
   ],
   "implementation": {
     "type": "container",
-    "entrypoint": "python transform.py",
-    "dockerfilePath": "Dockerfile",
-    "dockerContext": "omop-wide-table-source"
+    "entrypoint": "python transform.py"
   }
 }

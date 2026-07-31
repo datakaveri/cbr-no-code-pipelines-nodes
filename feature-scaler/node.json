@@ -4,8 +4,6 @@
   "name": "Feature Scaler",
   "shortDescription": "Scale numeric columns using StandardScaler or MinMaxScaler",
   "description": "Scales numeric columns so they are on the same range. StandardScaler makes mean=0 and std=1. MinMaxScaler squishes values between 0 and 1. Required before most ML models.",
-  "githubUrl": "https://github.com/<repo-link>",
-  "githubRef": "main",
   "lucideIcon": "Gauge",
   "color": "#6366f1",
   "hasInput": true,
@@ -29,8 +27,14 @@
       "required": true,
       "unique": false,
       "options": [
-        { "value": "standard", "label": "StandardScaler (mean=0, std=1)" },
-        { "value": "minmax", "label": "MinMaxScaler (0 to 1)" }
+        {
+          "value": "standard",
+          "label": "StandardScaler (mean=0, std=1)"
+        },
+        {
+          "value": "minmax",
+          "label": "MinMaxScaler (0 to 1)"
+        }
       ]
     },
     "columns": {
@@ -53,8 +57,6 @@
   ],
   "implementation": {
     "type": "container",
-    "entrypoint": "python transform.py",
-    "dockerfilePath": "Dockerfile",
-    "dockerContext": "feature-scaler"
+    "entrypoint": "python transform.py"
   }
 }

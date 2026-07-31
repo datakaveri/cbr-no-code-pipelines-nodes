@@ -1,0 +1,7 @@
+{
+  "name": "3D Merger Image",
+  "githubUrl": "https://github.com/pradeep800/pipelines-nodes",
+  "githubRef": "main",
+  "dockerfilePath": "Dockerfile",
+  "dockerContext": "3-d-merger"
+}

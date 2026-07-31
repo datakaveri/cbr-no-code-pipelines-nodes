@@ -4,8 +4,6 @@
   "name": "Label Encoder",
   "shortDescription": "Convert text/categorical columns into numbers",
   "description": "Encodes categorical columns (text values like 'male'/'female' or 'yes'/'no') into numeric labels (0, 1, 2...). ML models require numbers, not text. Adds new '_encoded' columns alongside the originals.",
-  "githubUrl": "https://github.com/<repo-link>",
-  "githubRef": "main",
   "lucideIcon": "Tags",
   "color": "#8b5cf6",
   "hasInput": true,
@@ -49,8 +47,6 @@
   ],
   "implementation": {
     "type": "container",
-    "entrypoint": "python transform.py",
-    "dockerfilePath": "Dockerfile",
-    "dockerContext": "label-encoder"
+    "entrypoint": "python transform.py"
   }
 }

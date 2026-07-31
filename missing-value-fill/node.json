@@ -1,108 +1,104 @@
 {
-    "version": "1.0",
-    "nodeType": "processing",
-    "name": "Missing Value Fill (LOCF)",
-    "shortDescription": "Carry each participant's last valid measurement forward across timepoints, with per-column validity ranges.",
-    "description": "Fills gaps in a timepointed longitudinal table using last-observation-carried-forward, independently per participant and in timepoint order. Each column declares the range(s) its values may legitimately fall in; anything missing or out of range is treated as absent and replaced by that participant's most recent valid value. Visits the participant never attended are left blank rather than invented. Reports what was filled so the imputation is auditable.",
-    "githubUrl": "https://github.com/pradeep800/pipelines-nodes",
-    "githubRef": "main",
-    "lucideIcon": "Baseline",
-    "color": "#8B5CF6",
-    "hasInput": true,
-    "inputDescription": "A timepointed table, one row per participant per timepoint — typically the output of Visit Timepoint Assignment.",
-    "config": {
-        "name": {
-            "type": "string",
-            "label": "Name",
-            "description": "Unique identifier for this node in the pipeline",
-            "required": true,
-            "unique": true,
-            "placeholder": "e.g. fill_missing",
-            "validation": {
-                "patternKey": "snake_case"
-            }
-        },
-        "parameters": {
-            "type": "json",
-            "label": "Columns to fill",
-            "description": "Map of column name to the range(s) its values may validly take. Values outside every range are treated as missing. Only the numeric columns listed here are filled — every other column is passed through with its gaps intact. Use an empty list to fill a column without a validity check, e.g. {\"mmse\": []}. Shorthand: a bare list of ranges.",
-            "required": true,
-            "order": 2,
-            "placeholder": "{\"clinical:hmse_score0_score_total\": [[1, 50]], \"cognitive:EP24DF (implicit memory)\": {\"ranges\": [[-2.2, -1.2], [-0.8, 6.2]], \"exclude_ranges\": []}}"
-        },
-        "participant_column": {
-            "type": "string",
-            "label": "Participant ID column",
-            "description": "Values are only ever carried forward within one participant.",
-            "required": true,
-            "default": "Barcode",
-            "placeholder": "e.g. Barcode",
-            "order": 3
-        },
-        "order_column": {
-            "type": "string",
-            "label": "Timepoint order column",
-            "description": "Numeric column giving each row's position in the sequence. Rows are sorted by this before filling.",
-            "required": true,
-            "default": "timepoint_index",
-            "placeholder": "e.g. timepoint_index",
-            "order": 4
-        },
-        "attendance_column": {
-            "type": "string",
-            "label": "Attendance column",
-            "description": "Blank in this column means the participant did not attend, so the row is left empty rather than filled. Leave unset to treat every row as attended.",
-            "required": false,
-            "default": "AppointmentDate",
-            "placeholder": "e.g. AppointmentDate",
-            "order": 5
-        },
-        "max_carry": {
-            "type": "number",
-            "label": "Maximum consecutive fills",
-            "description": "How many timepoints in a row a single value may be carried. Leave blank for unlimited, as the original analysis did.",
-            "required": false,
-            "order": 6,
-            "validation": {
-                "minimum": 1,
-                "maximum": 50,
-                "integer": true
-            }
-        },
-        "emit_full_grid": {
-            "type": "boolean",
-            "label": "Emit a row for every timepoint",
-            "description": "Pad each participant to one row per timepoint, giving a balanced panel for modelling. Padded rows are visits that did not happen: participant-level columns are copied onto them, measurements stay blank. Adds blank cells rather than removing them, so leave this off unless a downstream step needs a rectangular panel.",
-            "required": false,
-            "default": false,
-            "order": 7
-        },
-        "timepoint_column": {
-            "type": "string",
-            "label": "Timepoint label column",
-            "description": "Label column written on padded rows, e.g. T1. Only used when emitting the full grid.",
-            "required": false,
-            "default": "timepoint",
-            "placeholder": "e.g. timepoint",
-            "order": 8
-        }
+  "version": "1.0",
+  "nodeType": "processing",
+  "name": "Missing Value Fill (LOCF)",
+  "shortDescription": "Carry each participant's last valid measurement forward across timepoints, with per-column validity ranges.",
+  "description": "Fills gaps in a timepointed longitudinal table using last-observation-carried-forward, independently per participant and in timepoint order. Each column declares the range(s) its values may legitimately fall in; anything missing or out of range is treated as absent and replaced by that participant's most recent valid value. Visits the participant never attended are left blank rather than invented. Reports what was filled so the imputation is auditable.",
+  "lucideIcon": "Baseline",
+  "color": "#8B5CF6",
+  "hasInput": true,
+  "inputDescription": "A timepointed table, one row per participant per timepoint \u2014 typically the output of Visit Timepoint Assignment.",
+  "config": {
+    "name": {
+      "type": "string",
+      "label": "Name",
+      "description": "Unique identifier for this node in the pipeline",
+      "required": true,
+      "unique": true,
+      "placeholder": "e.g. fill_missing",
+      "validation": {
+        "patternKey": "snake_case"
+      }
     },
-    "hasOutput": true,
-    "outputDescription": "The filled table, plus a per-column report of how many values were imputed.",
-    "outputFiles": [
-        {
-            "name": "filled",
-            "path": "{{artifacts}}/{{pipeline.name}}/{{execution.timestamp}}/{{node.name}}/filled.parquet"
-        },
-        {
-            "name": "fill_report",
-            "path": "{{artifacts}}/{{pipeline.name}}/{{execution.timestamp}}/{{node.name}}/fill_report.parquet"
-        }
-    ],
-    "implementation": {
-        "type": "container",
-        "entrypoint": "python main.py",
-        "dockerfilePath": "Dockerfile",
-        "dockerContext": "missing-value-fill"
+    "parameters": {
+      "type": "json",
+      "label": "Columns to fill",
+      "description": "Map of column name to the range(s) its values may validly take. Values outside every range are treated as missing. Only the numeric columns listed here are filled \u2014 every other column is passed through with its gaps intact. Use an empty list to fill a column without a validity check, e.g. {\"mmse\": []}. Shorthand: a bare list of ranges.",
+      "required": true,
+      "order": 2,
+      "placeholder": "{\"clinical:hmse_score0_score_total\": [[1, 50]], \"cognitive:EP24DF (implicit memory)\": {\"ranges\": [[-2.2, -1.2], [-0.8, 6.2]], \"exclude_ranges\": []}}"
+    },
+    "participant_column": {
+      "type": "string",
+      "label": "Participant ID column",
+      "description": "Values are only ever carried forward within one participant.",
+      "required": true,
+      "default": "Barcode",
+      "placeholder": "e.g. Barcode",
+      "order": 3
+    },
+    "order_column": {
+      "type": "string",
+      "label": "Timepoint order column",
+      "description": "Numeric column giving each row's position in the sequence. Rows are sorted by this before filling.",
+      "required": true,
+      "default": "timepoint_index",
+      "placeholder": "e.g. timepoint_index",
+      "order": 4
+    },
+    "attendance_column": {
+      "type": "string",
+      "label": "Attendance column",
+      "description": "Blank in this column means the participant did not attend, so the row is left empty rather than filled. Leave unset to treat every row as attended.",
+      "required": false,
+      "default": "AppointmentDate",
+      "placeholder": "e.g. AppointmentDate",
+      "order": 5
+    },
+    "max_carry": {
+      "type": "number",
+      "label": "Maximum consecutive fills",
+      "description": "How many timepoints in a row a single value may be carried. Leave blank for unlimited, as the original analysis did.",
+      "required": false,
+      "order": 6,
+      "validation": {
+        "minimum": 1,
+        "maximum": 50,
+        "integer": true
+      }
+    },
+    "emit_full_grid": {
+      "type": "boolean",
+      "label": "Emit a row for every timepoint",
+      "description": "Pad each participant to one row per timepoint, giving a balanced panel for modelling. Padded rows are visits that did not happen: participant-level columns are copied onto them, measurements stay blank. Adds blank cells rather than removing them, so leave this off unless a downstream step needs a rectangular panel.",
+      "required": false,
+      "default": false,
+      "order": 7
+    },
+    "timepoint_column": {
+      "type": "string",
+      "label": "Timepoint label column",
+      "description": "Label column written on padded rows, e.g. T1. Only used when emitting the full grid.",
+      "required": false,
+      "default": "timepoint",
+      "placeholder": "e.g. timepoint",
+      "order": 8
     }
+  },
+  "hasOutput": true,
+  "outputDescription": "The filled table, plus a per-column report of how many values were imputed.",
+  "outputFiles": [
+    {
+      "name": "filled",
+      "path": "{{artifacts}}/{{pipeline.name}}/{{execution.timestamp}}/{{node.name}}/filled.parquet"
+    },
+    {
+      "name": "fill_report",
+      "path": "{{artifacts}}/{{pipeline.name}}/{{execution.timestamp}}/{{node.name}}/fill_report.parquet"
+    }
+  ],
+  "implementation": {
+    "type": "container",
+    "entrypoint": "python main.py"
+  }
 }

@@ -1,0 +1,7 @@
+{
+  "name": "SQL Transformer Image",
+  "githubUrl": "https://github.com/<repo-link>",
+  "githubRef": "main",
+  "dockerfilePath": "Dockerfile",
+  "dockerContext": "transformer"
+}

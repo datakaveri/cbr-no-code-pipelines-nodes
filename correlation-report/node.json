@@ -4,8 +4,6 @@
   "name": "Correlation Report",
   "shortDescription": "Calculate correlation between numeric columns",
   "description": "Computes how strongly each pair of numeric columns is related (correlation). Output is a long-format table (column_a, column_b, correlation) ready to visualize as a heatmap in Superset.",
-  "githubUrl": "https://github.com/<repo-link>",
-  "githubRef": "main",
   "lucideIcon": "BarChart3",
   "color": "#14b8a6",
   "hasInput": true,
@@ -29,9 +27,18 @@
       "required": true,
       "unique": false,
       "options": [
-        { "value": "pearson", "label": "Pearson (linear)" },
-        { "value": "spearman", "label": "Spearman (ranked)" },
-        { "value": "kendall", "label": "Kendall (robust)" }
+        {
+          "value": "pearson",
+          "label": "Pearson (linear)"
+        },
+        {
+          "value": "spearman",
+          "label": "Spearman (ranked)"
+        },
+        {
+          "value": "kendall",
+          "label": "Kendall (robust)"
+        }
       ]
     },
     "columns": {
@@ -54,8 +61,6 @@
   ],
   "implementation": {
     "type": "container",
-    "entrypoint": "python transform.py",
-    "dockerfilePath": "Dockerfile",
-    "dockerContext": "correlation-report"
+    "entrypoint": "python transform.py"
   }
 }

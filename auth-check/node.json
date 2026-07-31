@@ -3,9 +3,7 @@
   "nodeType": "processing",
   "name": "Auth Check",
   "shortDescription": "Prints the auth credential (API_KEY or USER_JWT) injected into the Argo pod (debug only)",
-  "description": "A minimal debug node. It produces no artifacts and instead prints the auth credential Argo injects into the container to the execution logs, so you can verify it reaches the pod. When the API-key path is enabled it receives API_KEY (a long-lived, per-user omop-auth key); when disabled (no AUTHZ_URL) it receives USER_JWT (the caller's short-lived Keycloak JWT) as a fallback. Present either as 'Authorization: Bearer $API_KEY' / 'Bearer $USER_JWT'; the backend resolves it to the user (same identity + roles). Debug/verification use only — do not leave in production pipelines since it logs a secret.",
-  "githubUrl": "https://github.com/<repo-link>",
-  "githubRef": "main",
+  "description": "A minimal debug node. It produces no artifacts and instead prints the auth credential Argo injects into the container to the execution logs, so you can verify it reaches the pod. When the API-key path is enabled it receives API_KEY (a long-lived, per-user omop-auth key); when disabled (no AUTHZ_URL) it receives USER_JWT (the caller's short-lived Keycloak JWT) as a fallback. Present either as 'Authorization: Bearer $API_KEY' / 'Bearer $USER_JWT'; the backend resolves it to the user (same identity + roles). Debug/verification use only \u2014 do not leave in production pipelines since it logs a secret.",
   "lucideIcon": "KeyRound",
   "color": "#10b981",
   "hasInput": false,
@@ -28,8 +26,6 @@
   "outputFiles": [],
   "implementation": {
     "type": "container",
-    "entrypoint": "python main.py",
-    "dockerfilePath": "Dockerfile",
-    "dockerContext": "auth-check"
+    "entrypoint": "python main.py"
   }
 }

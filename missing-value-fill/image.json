@@ -1,0 +1,7 @@
+{
+  "name": "Missing Value Fill (LOCF) Image",
+  "githubUrl": "https://github.com/pradeep800/pipelines-nodes",
+  "githubRef": "main",
+  "dockerfilePath": "Dockerfile",
+  "dockerContext": "missing-value-fill"
+}

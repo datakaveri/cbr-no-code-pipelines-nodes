@@ -1,0 +1,7 @@
+{
+  "name": "Auth Check Image",
+  "githubUrl": "https://github.com/<repo-link>",
+  "githubRef": "main",
+  "dockerfilePath": "Dockerfile",
+  "dockerContext": "auth-check"
+}

@@ -3,9 +3,7 @@
   "nodeType": "processing",
   "name": "Sleep",
   "shortDescription": "Delay the pipeline for a configured number of seconds, then pass the input through",
-  "description": "Sleeps for the configured duration, then copies its input artifact through to its output byte-for-byte. Wire it between two nodes to delay the downstream stage — useful for testing slow pipeline stages, execution timeouts, and short-lived STS credential expiry. Note: sleeps longer than the STS token lifetime (900-3600s, operator-configured) will fail at the copy step because the injected S3 credentials expire.",
-  "githubUrl": "https://github.com/<repo-link>",
-  "githubRef": "main",
+  "description": "Sleeps for the configured duration, then copies its input artifact through to its output byte-for-byte. Wire it between two nodes to delay the downstream stage \u2014 useful for testing slow pipeline stages, execution timeouts, and short-lived STS credential expiry. Note: sleeps longer than the STS token lifetime (900-3600s, operator-configured) will fail at the copy step because the injected S3 credentials expire.",
   "lucideIcon": "Timer",
   "color": "#f59e0b",
   "hasInput": true,
@@ -48,8 +46,6 @@
   ],
   "implementation": {
     "type": "container",
-    "entrypoint": "python main.py",
-    "dockerfilePath": "Dockerfile",
-    "dockerContext": "sleep"
+    "entrypoint": "python main.py"
   }
 }

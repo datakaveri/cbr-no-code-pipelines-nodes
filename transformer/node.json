@@ -4,8 +4,6 @@
   "name": "SQL Transformer",
   "shortDescription": "Transform data using SQL queries powered by DuckDB",
   "description": "Executes SQL transformations using DuckDB. Loads input dependencies as tables, runs your SQL query, and exports results to S3 in Parquet, CSV, or JSON format.",
-  "githubUrl": "https://github.com/<repo-link>",
-  "githubRef": "main",
   "lucideIcon": "Database",
   "color": "#3b82f6",
   "hasInput": true,
@@ -43,8 +41,6 @@
   ],
   "implementation": {
     "type": "container",
-    "entrypoint": "python transform.py",
-    "dockerfilePath": "Dockerfile",
-    "dockerContext": "transformer"
+    "entrypoint": "python transform.py"
   }
 }
