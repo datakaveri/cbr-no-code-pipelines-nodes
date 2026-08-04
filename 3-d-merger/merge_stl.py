@@ -11,6 +11,11 @@ sql-transformer):
   ARTIFACT_S3_*  - artifact bucket (workflow outputs), read+write
 Inputs may live in either bucket; the client is chosen per path by its bucket.
 Outputs always go to the artifact bucket.
+
+Prefers the presigned GET/PUT URL the platform attaches to each input/output
+entry in NODE_CONTEXT (`presignedUrl`) — plain HTTPS, no S3 credentials
+needed. Falls back to boto3 + the INPUT_S3_*/ARTIFACT_S3_* credential env
+vars when an entry has no presignedUrl (dual mode during the rollout).
 """
 
 from __future__ import annotations
@@ -22,6 +27,7 @@ import sys
 import tempfile
 
 import boto3
+import requests
 from botocore.exceptions import BotoCoreError, ClientError
 from vedo import load, merge, write
 
@@ -110,10 +116,18 @@ def main() -> None:
             path = out.get("path")
             if not path:
                 raise ValueError(f"Missing input path for {inp.get('nodeName', i)}")
-            b, key = parse_s3_uri(path)
             local = os.path.join(root, f"in_{i}.stl")
-            log(f"Downloading {path} -> {local}")
-            client_for(path).download_file(b, key, local)
+            presigned_url = out.get("presignedUrl")
+            if presigned_url:
+                log(f"Downloading {path} -> {local} via presigned URL")
+                resp = requests.get(presigned_url, timeout=300)
+                resp.raise_for_status()
+                with open(local, "wb") as fh:
+                    fh.write(resp.content)
+            else:
+                b, key = parse_s3_uri(path)
+                log(f"Downloading {path} -> {local}")
+                client_for(path).download_file(b, key, local)
             stl_local_paths.append(local)
 
         log(f"Merging {len(stl_local_paths)} mesh(es)...")
@@ -123,15 +137,22 @@ def main() -> None:
         # Write to the exact path the platform assigned (always artifact bucket).
         out_def = out_files[0]
         dest_uri = out_def["path"]
-        db, dkey = parse_s3_uri(dest_uri)
+        _, dkey = parse_s3_uri(dest_uri)
 
         # vedo infers the writer from the filename extension; match the dest's.
         ext = os.path.splitext(dkey)[1].lstrip(".") or "stl"
         merged_local = os.path.join(root, f"merged.{ext}")
         write(merged, merged_local)
 
+        out_presigned_url = out_def.get("presignedUrl")
         log(f"Uploading merged mesh to {dest_uri}")
-        client_for(dest_uri).upload_file(merged_local, db, dkey)
+        if out_presigned_url:
+            with open(merged_local, "rb") as fh:
+                resp = requests.put(out_presigned_url, data=fh.read(), timeout=300)
+            resp.raise_for_status()
+        else:
+            db, _ = parse_s3_uri(dest_uri)
+            client_for(dest_uri).upload_file(merged_local, db, dkey)
 
         result = {
             "success": True,

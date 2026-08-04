@@ -20,6 +20,7 @@ import tempfile
 
 import boto3
 import pandas as pd
+import requests
 
 NODE_PREFIX = "[TIMEPOINT ASSIGNMENT]"
 
@@ -458,11 +459,23 @@ def main() -> None:
 
     workdir = tempfile.mkdtemp(prefix="timepoint_")
     try:
-        source = inputs[0]["output"]["path"]
+        source_entry = inputs[0]["output"]
+        source = source_entry["path"]
+        source_presigned_url = source_entry.get("presignedUrl")
         bucket, key = split_s3_uri(source)
         local_path = os.path.join(workdir, os.path.basename(key))
-        log(f"Downloading s3://{bucket}/{key}")
-        get_s3_client_for_path(source).download_file(bucket, key, local_path)
+        # Prefer the platform's presigned GET URL when attached to this input;
+        # fall back to boto3 + INPUT_S3_*/ARTIFACT_S3_* credentials otherwise
+        # (dual mode during the STS-to-presigned migration).
+        if source_presigned_url:
+            log(f"Downloading {source} via presigned URL")
+            resp = requests.get(source_presigned_url, timeout=300)
+            resp.raise_for_status()
+            with open(local_path, "wb") as fh:
+                fh.write(resp.content)
+        else:
+            log(f"Downloading s3://{bucket}/{key}")
+            get_s3_client_for_path(source).download_file(bucket, key, local_path)
 
         df = read_table(local_path)
         log(f"Read {len(df)} row(s), {len(df.columns)} column(s)")
@@ -483,9 +496,16 @@ def main() -> None:
                 continue
             local_out = os.path.join(workdir, f"{name}.parquet")
             frame.to_parquet(local_out, index=False)
-            out_bucket, out_key = split_s3_uri(out["path"])
-            log(f"Uploading {name} ({len(frame)} rows) to s3://{out_bucket}/{out_key}")
-            get_s3_client_for_path(out["path"]).upload_file(local_out, out_bucket, out_key)
+            out_presigned_url = out.get("presignedUrl")
+            if out_presigned_url:
+                log(f"Uploading {name} ({len(frame)} rows) to {out['path']} via presigned URL")
+                with open(local_out, "rb") as fh:
+                    resp = requests.put(out_presigned_url, data=fh, timeout=300)
+                resp.raise_for_status()
+            else:
+                out_bucket, out_key = split_s3_uri(out["path"])
+                log(f"Uploading {name} ({len(frame)} rows) to s3://{out_bucket}/{out_key}")
+                get_s3_client_for_path(out["path"]).upload_file(local_out, out_bucket, out_key)
             outputs.append({"name": name, "path": out["path"]})
 
         print(

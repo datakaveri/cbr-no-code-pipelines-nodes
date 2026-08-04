@@ -45,6 +45,7 @@ import time
 
 import boto3
 import polars as pl
+import requests
 from boto3.s3.transfer import TransferConfig
 from botocore.client import Config
 from cbr_data_access import DataAccessClient
@@ -273,30 +274,50 @@ def main():
                     f"(pull+pivot+encode total {time.monotonic() - t0:.1f}s); uploading next")
 
                 # Phase 2: upload the seekable file.
-                # This S3 endpoint doesn't support multipart uploads, so force a
-                # single PUT by raising the threshold above any realistic size.
-                # upload_file streams the body straight from disk, so even a large
-                # single PUT never buffers the whole table in memory.
+                # Prefers the platform's presigned PUT URL when attached to this
+                # output; falls back to boto3 + ARTIFACT_S3_* credentials otherwise
+                # (dual mode during the STS-to-presigned migration).
                 t1 = time.monotonic()
-                transfer = TransferConfig(
-                    multipart_threshold=5 * 1024 * 1024 * 1024,  # 5 GiB: never split
-                    use_threads=False,
-                )
-                log(f"Uploading {size_mb:.1f} MB -> s3://{bucket}/{first_key} ...")
-                s3.upload_file(local_path, bucket, first_key, Config=transfer)
+                main_presigned_url = out_files[0].get("presignedUrl")
+                if main_presigned_url:
+                    log(f"Uploading {size_mb:.1f} MB -> {out_files[0]['path']} via presigned URL ...")
+                    with open(local_path, "rb") as fh:
+                        resp = requests.put(main_presigned_url, data=fh, timeout=900)
+                    resp.raise_for_status()
+                else:
+                    # This S3 endpoint doesn't support multipart uploads, so force a
+                    # single PUT by raising the threshold above any realistic size.
+                    # upload_file streams the body straight from disk, so even a large
+                    # single PUT never buffers the whole table in memory.
+                    transfer = TransferConfig(
+                        multipart_threshold=5 * 1024 * 1024 * 1024,  # 5 GiB: never split
+                        use_threads=False,
+                    )
+                    log(f"Uploading {size_mb:.1f} MB -> s3://{bucket}/{first_key} ...")
+                    s3.upload_file(local_path, bucket, first_key, Config=transfer)
                 dt = time.monotonic() - t1
                 log(f"Upload done in {dt:.1f}s ({size_mb / max(dt, 1e-3):.1f} MB/s)")
 
-                # Additional outputs share the same bytes: single-request
-                # server-side copy (copy_object, not the managed multipart copy).
+                # Additional outputs share the same bytes. There's no presigned
+                # equivalent of a server-side copy_object, but the encoded file is
+                # still on local disk here, so a presigned extra output gets the
+                # same bytes re-PUT directly (no S3 read needed); otherwise fall
+                # back to the original single-request server-side copy.
                 for f in out_files[1:]:
                     extra_key = s3_key_from_path(f["path"])
-                    log(f"Copying to s3://{bucket}/{extra_key} ...")
-                    s3.copy_object(
-                        Bucket=bucket,
-                        CopySource={"Bucket": bucket, "Key": first_key},
-                        Key=extra_key,
-                    )
+                    extra_presigned_url = f.get("presignedUrl")
+                    if extra_presigned_url:
+                        log(f"Uploading -> {f['path']} via presigned URL (extra output)...")
+                        with open(local_path, "rb") as fh:
+                            resp = requests.put(extra_presigned_url, data=fh, timeout=900)
+                        resp.raise_for_status()
+                    else:
+                        log(f"Copying to s3://{bucket}/{extra_key} ...")
+                        s3.copy_object(
+                            Bucket=bucket,
+                            CopySource={"Bucket": bucket, "Key": first_key},
+                            Key=extra_key,
+                        )
 
         log(f"Completed OK (version {NODE_VERSION})")
         print(json.dumps({

@@ -36,7 +36,9 @@ Resource Environment Variables (two buckets, one credential set each):
 import os
 import sys
 import json
+import tempfile
 import duckdb
+import requests
 
 
 def log(message: str):
@@ -64,13 +66,23 @@ def parse_node_context() -> dict:
         raise ValueError(f"Failed to parse NODE_CONTEXT: {e}")
 
 
-def create_s3_secret(conn, name: str, prefix: str, bucket: str):
+def create_s3_secret(conn, name: str, prefix: str, bucket_env_var: str):
     """Create a DuckDB S3 secret scoped to one bucket from {prefix}_S3_* env vars.
 
-    Two secrets (INPUT + ARTIFACT) are created; DuckDB picks the matching one per
-    query from the path's bucket, so reads from the read-only upload bucket and
+    Fallback path only, used for an input/output that has no presignedUrl
+    (see main()). Two secrets (INPUT + ARTIFACT) are created when their
+    credential env vars are present; DuckDB picks the matching one per query
+    from the path's bucket, so reads from the read-only upload bucket and
     writes to the read+write artifact bucket each use the right credentials.
+    Skipped (not an error) when the env vars are absent — once a future
+    backend stops injecting STS credentials, every entry is expected to carry
+    a presignedUrl and this fallback is simply unused.
     """
+    if not os.environ.get(f"{prefix}_S3_ACCESS_KEY"):
+        log(f"No {prefix}_S3_ACCESS_KEY configured, skipping {name} (presigned-URL-only mode)")
+        return
+
+    bucket = os.environ[bucket_env_var]
     session_token = os.environ.get(f"{prefix}_S3_SESSION_TOKEN", "")
     session_token_clause = ""
     if session_token:
@@ -145,8 +157,8 @@ def main():
         # from the read-only upload bucket and writes to the read+write
         # artifact bucket both work.
         log("Configuring S3 connection...")
-        create_s3_secret(conn, "input_secret", "INPUT", os.environ["INPUT_S3_BUCKET"])
-        create_s3_secret(conn, "artifact_secret", "ARTIFACT", os.environ["ARTIFACT_S3_BUCKET"])
+        create_s3_secret(conn, "input_secret", "INPUT", "INPUT_S3_BUCKET")
+        create_s3_secret(conn, "artifact_secret", "ARTIFACT", "ARTIFACT_S3_BUCKET")
         log("S3 secrets configured successfully")
 
         # Load all inputs as tables
@@ -154,7 +166,11 @@ def main():
         for inp in inputs:
             # Use nodeName as table name (sanitized)
             table_name = sanitize_table_name(inp["nodeName"])
-            path = inp["output"]["path"]
+            # A presigned GET URL needs no S3 secret at all — httpfs treats a
+            # plain https:// argument as a generic HTTP resource. Falls back
+            # to the s3:// path (read via the secrets created above) when the
+            # backend hasn't attached one.
+            path = inp["output"].get("presignedUrl") or inp["output"]["path"]
             format = inp["output"].get("format", "parquet").lower()
 
             log(f"  Loading '{table_name}' from {inp['nodeName']} (format: {format})")
@@ -196,6 +212,7 @@ def main():
             output_format = output_file["format"]
             # Write to the exact path the platform assigned (always artifact bucket).
             output_path = output_file["path"]
+            presigned_put_url = output_file.get("presignedUrl")
 
             log(f"Exporting '{output_name}' to {output_path}...")
 
@@ -209,9 +226,21 @@ def main():
             else:
                 format_options = "FORMAT PARQUET"
 
-            export_sql = f"COPY {result_table} TO '{output_path}' ({format_options})"
-            conn.execute(export_sql)
-            log(f"  Exported {row_count} rows to {output_path}")
+            if presigned_put_url:
+                # Write to a local temp file and PUT it ourselves rather than
+                # `COPY ... TO 'https://...'` — DuckDB's HTTP write support
+                # varies by version, whereas a local COPY + `requests.put` of
+                # a presigned S3 URL works the same everywhere.
+                with tempfile.NamedTemporaryFile(suffix=f".{output_format}") as tmp:
+                    conn.execute(f"COPY {result_table} TO '{tmp.name}' ({format_options})")
+                    with open(tmp.name, "rb") as fh:
+                        resp = requests.put(presigned_put_url, data=fh.read(), timeout=600)
+                        resp.raise_for_status()
+                log(f"  Exported {row_count} rows to {output_path} via presigned URL")
+            else:
+                export_sql = f"COPY {result_table} TO '{output_path}' ({format_options})"
+                conn.execute(export_sql)
+                log(f"  Exported {row_count} rows to {output_path}")
 
         log("=== Transformer Node Complete ===")
 

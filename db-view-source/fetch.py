@@ -10,6 +10,11 @@ This node has no S3 inputs (the view comes from the data-access server via
 the SDK), so it only needs the artifact bucket's credentials:
   ARTIFACT_S3_*  - artifact bucket (workflow outputs), read+write
 Writes to the exact paths the platform assigns in output.files[*].path.
+
+Prefers the presigned PUT URL the platform attaches to each output entry in
+NODE_CONTEXT (`presignedUrl`) — plain HTTPS, no S3 credentials needed. Falls
+back to boto3 + the ARTIFACT_S3_* credential env vars when an entry has no
+presignedUrl (dual mode during the rollout).
 """
 
 import json
@@ -18,6 +23,7 @@ import sys
 import tempfile
 
 import boto3
+import requests
 from botocore.client import Config
 from cbr_data_access import DataAccessClient
 from cbr_data_access.exceptions import DataAccessError
@@ -89,9 +95,16 @@ def main():
                 log(f"Downloaded → {local_path}")
 
                 for f in out_files:
-                    s3_key = s3_key_from_path(f["path"])
-                    log(f"Uploading to s3://{bucket}/{s3_key} ...")
-                    s3.upload_file(str(local_path), bucket, s3_key)
+                    presigned_url = f.get("presignedUrl")
+                    if presigned_url:
+                        log(f"Uploading -> {f['path']} via presigned URL...")
+                        with open(local_path, "rb") as fh:
+                            resp = requests.put(presigned_url, data=fh.read(), timeout=300)
+                        resp.raise_for_status()
+                    else:
+                        s3_key = s3_key_from_path(f["path"])
+                        log(f"Uploading to s3://{bucket}/{s3_key} ...")
+                        s3.upload_file(str(local_path), bucket, s3_key)
                     log("Upload complete")
 
         print(json.dumps({

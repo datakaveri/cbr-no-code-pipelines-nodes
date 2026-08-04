@@ -18,6 +18,7 @@ import sys
 from urllib.parse import urlparse
 
 import boto3
+import requests
 
 
 def log(message: str) -> None:
@@ -118,16 +119,25 @@ def main() -> None:
             if output_format.lower() != "stl":
                 raise ValueError(f"Unsupported output format for STL merger: {output_format}")
 
-            bucket, key = parse_s3_uri(output_path)
             body = build_ascii_stl(node_name, output_name)
 
-            log(f"Uploading '{output_name}' to {output_path}...")
-            s3_client.put_object(
-                Bucket=bucket,
-                Key=key,
-                Body=body,
-                ContentType="model/stl",
-            )
+            # Prefer the platform's presigned PUT URL when attached to this
+            # output; fall back to boto3 + ARTIFACT_S3_* credentials otherwise
+            # (dual mode during the STS-to-presigned migration).
+            presigned_url = output_file.get("presignedUrl")
+            if presigned_url:
+                log(f"Uploading '{output_name}' to {output_path} via presigned URL...")
+                resp = requests.put(presigned_url, data=body, timeout=300)
+                resp.raise_for_status()
+            else:
+                bucket, key = parse_s3_uri(output_path)
+                log(f"Uploading '{output_name}' to {output_path}...")
+                s3_client.put_object(
+                    Bucket=bucket,
+                    Key=key,
+                    Body=body,
+                    ContentType="model/stl",
+                )
 
             uploaded_outputs.append(
                 {

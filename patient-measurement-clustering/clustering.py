@@ -16,8 +16,10 @@ Runtime contract:
 import json
 import os
 import sys
+import tempfile
 
 import duckdb
+import requests
 import pandas as pd
 import numpy as np
 from sklearn.cluster import KMeans, AgglomerativeClustering, SpectralClustering
@@ -37,13 +39,23 @@ def log_error(msg):
     print(f"{NODE_PREFIX} ERROR: {msg}", file=sys.stderr, flush=True)
 
 
-def create_s3_secret(conn, name: str, prefix: str, bucket: str):
+def create_s3_secret(conn, name: str, prefix: str, bucket_env_var: str):
     """Create a DuckDB S3 secret scoped to one bucket from {prefix}_S3_* env vars.
 
-    Two secrets (INPUT + ARTIFACT) are created; DuckDB picks the matching one per
-    query from the path's bucket, so reads from the read-only upload bucket and
+    Fallback path only, used for an input/output that has no presignedUrl
+    (see main()). Two secrets (INPUT + ARTIFACT) are created when their
+    credential env vars are present; DuckDB picks the matching one per query
+    from the path's bucket, so reads from the read-only upload bucket and
     writes to the read+write artifact bucket each use the right credentials.
+    Skipped (not an error) when the env vars are absent — once a future
+    backend stops injecting STS credentials, every entry is expected to carry
+    a presignedUrl and this fallback is simply unused.
     """
+    if not os.environ.get(f"{prefix}_S3_ACCESS_KEY"):
+        log(f"No {prefix}_S3_ACCESS_KEY configured, skipping {name} (presigned-URL-only mode)")
+        return
+
+    bucket = os.environ[bucket_env_var]
     session_token = os.environ.get(f"{prefix}_S3_SESSION_TOKEN", "")
     token_clause = f",\n        SESSION_TOKEN '{session_token}'" if session_token else ""
     conn.execute(f"""
@@ -62,8 +74,8 @@ def create_s3_secret(conn, name: str, prefix: str, bucket: str):
 
 def setup_duckdb_s3(conn):
     conn.load_extension("httpfs")
-    create_s3_secret(conn, "input_secret", "INPUT", os.environ["INPUT_S3_BUCKET"])
-    create_s3_secret(conn, "artifact_secret", "ARTIFACT", os.environ["ARTIFACT_S3_BUCKET"])
+    create_s3_secret(conn, "input_secret", "INPUT", "INPUT_S3_BUCKET")
+    create_s3_secret(conn, "artifact_secret", "ARTIFACT", "ARTIFACT_S3_BUCKET")
 
 
 def _build_clusterer(algorithm: str, n_clusters: int):
@@ -183,8 +195,14 @@ def main():
 
     n_clusters = int(config.get("n_clusters", 3))
     algorithm  = config.get("algorithm", "kmeans")
-    input_path = inputs[0]["output"]["path"]
-    output_path = out_files[0]["path"]
+    # A presigned GET URL needs no S3 secret at all — httpfs treats a plain
+    # https:// argument as a generic HTTP resource. Falls back to the s3://
+    # path (read via the secrets created above) when the backend hasn't
+    # attached one.
+    input_path = inputs[0]["output"].get("presignedUrl") or inputs[0]["output"]["path"]
+    output_file = out_files[0]
+    output_path = output_file["path"]
+    presigned_put_url = output_file.get("presignedUrl")
 
     log(f"=== {node_name} ===")
     log(f"Input    : {input_path}")
@@ -194,7 +212,7 @@ def main():
     conn = duckdb.connect(":memory:")
     setup_duckdb_s3(conn)
 
-    log("Reading input parquet from S3...")
+    log("Reading input parquet...")
     df = conn.execute(f"SELECT * FROM read_parquet('{input_path}')").df()
     log(f"Loaded {len(df)} rows, {df['person_id'].nunique()} patients")
 
@@ -207,9 +225,23 @@ def main():
     result = cluster_patients(df, n_clusters, algorithm)
     log(f"Output: {len(result)} patients across {n_clusters} clusters")
 
-    log("Writing output parquet to S3...")
     conn.register("result_table", result)
-    conn.execute(f"COPY result_table TO '{output_path}' (FORMAT PARQUET, COMPRESSION 'snappy')")
+
+    if presigned_put_url:
+        # Write to a local temp file and PUT it ourselves rather than
+        # `COPY ... TO 'https://...'` — DuckDB's HTTP write support varies by
+        # version, whereas a local COPY + `requests.put` of a presigned S3
+        # URL works the same everywhere.
+        log("Writing output parquet via presigned URL...")
+        with tempfile.NamedTemporaryFile(suffix=".parquet") as tmp:
+            conn.execute(f"COPY result_table TO '{tmp.name}' (FORMAT PARQUET, COMPRESSION 'snappy')")
+            with open(tmp.name, "rb") as fh:
+                resp = requests.put(presigned_put_url, data=fh.read(), timeout=600)
+                resp.raise_for_status()
+        log(f"  Exported to {output_path} via presigned URL")
+    else:
+        log("Writing output parquet to S3...")
+        conn.execute(f"COPY result_table TO '{output_path}' (FORMAT PARQUET, COMPRESSION 'snappy')")
 
     log("Done.")
     print(json.dumps({

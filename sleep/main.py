@@ -28,6 +28,7 @@ import tempfile
 import time
 
 import boto3
+import requests
 from boto3.s3.transfer import TransferConfig
 from botocore.client import Config
 
@@ -114,7 +115,9 @@ def main():
 
         if not inputs:
             raise ValueError("Sleep node requires one upstream input to pass through")
-        src_path = inputs[0]["output"]["path"]
+        src_entry = inputs[0]["output"]
+        src_path = src_entry["path"]
+        src_presigned_url = src_entry.get("presignedUrl")
 
         log(f"Node: {node['name']} | Sleep: {duration:.0f}s | Passthrough: {src_path}")
 
@@ -137,9 +140,25 @@ def main():
 
         src_bucket, src_key = split_s3(src_path)
         # Write to the exact path the platform assigned (always artifact bucket).
-        dest_bucket, dest_key = split_s3(out_files[0]["path"])
+        main_out = out_files[0]
+        main_presigned_url = main_out.get("presignedUrl")
+        dest_bucket, dest_key = split_s3(main_out["path"])
 
-        if src_bucket == artifact_bucket:
+        # `data` is populated only when the presigned GET+PUT path below runs,
+        # so extra outputs can reuse the already-fetched bytes instead of
+        # re-downloading them.
+        data = None
+
+        if src_presigned_url and main_presigned_url:
+            # Preferred: plain HTTPS through the platform's presigned URLs, no
+            # S3 credentials needed on either end.
+            log(f"Passthrough via presigned URLs: {src_path} -> {main_out['path']}")
+            resp = requests.get(src_presigned_url, timeout=300)
+            resp.raise_for_status()
+            data = resp.content
+            resp = requests.put(main_presigned_url, data=data, timeout=300)
+            resp.raise_for_status()
+        elif src_bucket == artifact_bucket:
             # Same bucket and credentials: single-request server-side copy.
             log(f"Server-side copy s3://{src_bucket}/{src_key} -> s3://{dest_bucket}/{dest_key}")
             artifact_s3.copy_object(
@@ -167,15 +186,32 @@ def main():
                 log(f"Uploading {size_mb:.1f} MB -> s3://{dest_bucket}/{dest_key} ...")
                 artifact_s3.upload_file(local_path, dest_bucket, dest_key, Config=transfer)
 
-        # Additional outputs share the same bytes: single-request server-side copy.
+        # Additional outputs share the same bytes. There's no presigned
+        # equivalent of copy_object: if the main step already pulled the bytes
+        # into memory (presigned path above), reuse them for a direct PUT;
+        # otherwise re-fetch via a fresh presigned GET of the source when both
+        # ends have a presignedUrl, falling back to the original server-side
+        # copy_object otherwise.
         for f in out_files[1:]:
-            _, extra_key = split_s3(f["path"])
-            log(f"Copying to s3://{dest_bucket}/{extra_key} ...")
-            artifact_s3.copy_object(
-                Bucket=dest_bucket,
-                CopySource={"Bucket": dest_bucket, "Key": dest_key},
-                Key=extra_key,
-            )
+            extra_presigned_url = f.get("presignedUrl")
+            if extra_presigned_url and data is not None:
+                log(f"Uploading -> {f['path']} via presigned URL (extra output)...")
+                resp = requests.put(extra_presigned_url, data=data, timeout=300)
+                resp.raise_for_status()
+            elif extra_presigned_url and src_presigned_url:
+                log(f"Uploading -> {f['path']} via presigned URL (extra output, re-fetched)...")
+                resp = requests.get(src_presigned_url, timeout=300)
+                resp.raise_for_status()
+                resp = requests.put(extra_presigned_url, data=resp.content, timeout=300)
+                resp.raise_for_status()
+            else:
+                _, extra_key = split_s3(f["path"])
+                log(f"Copying to s3://{dest_bucket}/{extra_key} ...")
+                artifact_s3.copy_object(
+                    Bucket=dest_bucket,
+                    CopySource={"Bucket": dest_bucket, "Key": dest_key},
+                    Key=extra_key,
+                )
 
         log(f"Completed OK (version {NODE_VERSION})")
         print(json.dumps({

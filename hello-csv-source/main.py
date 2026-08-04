@@ -29,6 +29,7 @@ import random
 import sys
 
 import boto3
+import requests
 from botocore.client import Config
 
 # Bump this on every code change so a run's logs prove which build is live.
@@ -133,19 +134,40 @@ def main():
         artifact_s3 = get_s3_client("ARTIFACT")
 
         # Write to the exact path the platform assigned (always artifact bucket).
-        dest_bucket, dest_key = split_s3(out_files[0]["path"])
-        log(f"Uploading -> s3://{dest_bucket}/{dest_key} ...")
-        artifact_s3.put_object(Bucket=dest_bucket, Key=dest_key, Body=data)
+        # Prefers the platform's presigned PUT URL when attached; falls back to
+        # boto3 + ARTIFACT_S3_* credentials otherwise (dual mode during the
+        # STS-to-presigned migration).
+        main_file = out_files[0]
+        main_presigned_url = main_file.get("presignedUrl")
+        if main_presigned_url:
+            log(f"Uploading -> {main_file['path']} via presigned URL...")
+            resp = requests.put(main_presigned_url, data=data, timeout=300)
+            resp.raise_for_status()
+        else:
+            dest_bucket, dest_key = split_s3(main_file["path"])
+            log(f"Uploading -> s3://{dest_bucket}/{dest_key} ...")
+            artifact_s3.put_object(Bucket=dest_bucket, Key=dest_key, Body=data)
 
-        # Additional outputs share the same bytes: single-request server-side copy.
+        # Additional outputs are identical bytes to the main output. Previously
+        # a single server-side copy_object from the just-written main key — no
+        # presigned equivalent exists for a pure S3-side copy, but the source
+        # bytes are already in memory here (this node generated them), so a
+        # presigned PUT of `data` again is just as cheap and needs no S3 read.
+        dest_bucket, dest_key = split_s3(main_file["path"])
         for f in out_files[1:]:
-            _, extra_key = split_s3(f["path"])
-            log(f"Copying to s3://{dest_bucket}/{extra_key} ...")
-            artifact_s3.copy_object(
-                Bucket=dest_bucket,
-                CopySource={"Bucket": dest_bucket, "Key": dest_key},
-                Key=extra_key,
-            )
+            presigned_url = f.get("presignedUrl")
+            if presigned_url:
+                log(f"Uploading -> {f['path']} via presigned URL (extra output)...")
+                resp = requests.put(presigned_url, data=data, timeout=300)
+                resp.raise_for_status()
+            else:
+                _, extra_key = split_s3(f["path"])
+                log(f"Copying to s3://{dest_bucket}/{extra_key} ...")
+                artifact_s3.copy_object(
+                    Bucket=dest_bucket,
+                    CopySource={"Bucket": dest_bucket, "Key": dest_key},
+                    Key=extra_key,
+                )
 
         log(f"Completed OK (version {NODE_VERSION})")
         print(json.dumps({

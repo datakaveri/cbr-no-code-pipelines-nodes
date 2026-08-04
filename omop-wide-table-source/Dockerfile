@@ -15,7 +15,7 @@ COPY sdk/ ./sdk/
 # Scrub any build artifacts before installing: setuptools reuses a stale
 # build/lib as the wheel staging dir and silently packages old code.
 RUN rm -rf ./sdk/build ./sdk/dist ./sdk/src/*.egg-info \
-    && uv pip install --system --no-cache ./sdk/ boto3
+    && uv pip install --system --no-cache ./sdk/ boto3 requests==2.32.3
 
 COPY transform.py ./
 

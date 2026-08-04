@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY sdk/ ./sdk/
-RUN pip install --no-cache-dir --timeout 1800 ./sdk/ boto3
+RUN pip install --no-cache-dir --timeout 1800 ./sdk/ boto3 requests==2.32.3
 
 COPY fetch.py ./
 

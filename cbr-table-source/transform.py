@@ -17,6 +17,11 @@ This node has no S3 inputs (the table comes from the data-access server via
 the SDK), so it only needs the artifact bucket's credentials:
   ARTIFACT_S3_*  - artifact bucket (workflow outputs), read+write
 Writes to the exact paths the platform assigns in output.files[*].path.
+
+Prefers the presigned PUT URL the platform attaches to each output entry in
+NODE_CONTEXT (`presignedUrl`) — plain HTTPS, no S3 credentials needed. Falls
+back to boto3 + the ARTIFACT_S3_* credential env vars when an entry has no
+presignedUrl (dual mode during the rollout).
 """
 
 import json
@@ -27,6 +32,7 @@ import tempfile
 import time
 
 import boto3
+import requests
 from boto3.s3.transfer import TransferConfig
 from botocore.client import Config
 from cbr_data_access import DataAccessClient
@@ -177,25 +183,43 @@ def main():
                 # upload_file streams the body straight from disk, so even a large
                 # single PUT never buffers the whole table in memory.
                 t1 = time.monotonic()
-                transfer = TransferConfig(
-                    multipart_threshold=5 * 1024 * 1024 * 1024,  # 5 GiB: never split
-                    use_threads=False,
-                )
-                log(f"Uploading {size_mb:.1f} MB -> s3://{bucket}/{first_key} ...")
-                s3.upload_file(local_path, bucket, first_key, Config=transfer)
+                main_presigned_url = out_files[0].get("presignedUrl")
+                if main_presigned_url:
+                    log(f"Uploading {size_mb:.1f} MB -> {out_files[0]['path']} via presigned URL...")
+                    with open(local_path, "rb") as fh:
+                        resp = requests.put(main_presigned_url, data=fh.read(), timeout=600)
+                    resp.raise_for_status()
+                else:
+                    transfer = TransferConfig(
+                        multipart_threshold=5 * 1024 * 1024 * 1024,  # 5 GiB: never split
+                        use_threads=False,
+                    )
+                    log(f"Uploading {size_mb:.1f} MB -> s3://{bucket}/{first_key} ...")
+                    s3.upload_file(local_path, bucket, first_key, Config=transfer)
                 dt = time.monotonic() - t1
                 log(f"Upload done in {dt:.1f}s ({size_mb / max(dt, 1e-3):.1f} MB/s)")
 
-                # Additional outputs share the same bytes: single-request
-                # server-side copy (copy_object, not the managed multipart copy).
+                # Additional outputs share the same bytes as the main output. No
+                # presigned equivalent of a server-side copy_object exists, but the
+                # encoded Parquet is still on local disk at this point (the temp
+                # dir is still open) — read it back and PUT it again per extra
+                # output's own presignedUrl instead of round-tripping through S3.
+                # Falls back to copy_object when an extra output has no presignedUrl.
                 for f in out_files[1:]:
-                    extra_key = s3_key_from_path(f["path"])
-                    log(f"Copying to s3://{bucket}/{extra_key} ...")
-                    s3.copy_object(
-                        Bucket=bucket,
-                        CopySource={"Bucket": bucket, "Key": first_key},
-                        Key=extra_key,
-                    )
+                    extra_presigned_url = f.get("presignedUrl")
+                    if extra_presigned_url:
+                        log(f"Uploading -> {f['path']} via presigned URL (extra output)...")
+                        with open(local_path, "rb") as fh:
+                            resp = requests.put(extra_presigned_url, data=fh.read(), timeout=600)
+                        resp.raise_for_status()
+                    else:
+                        extra_key = s3_key_from_path(f["path"])
+                        log(f"Copying to s3://{bucket}/{extra_key} ...")
+                        s3.copy_object(
+                            Bucket=bucket,
+                            CopySource={"Bucket": bucket, "Key": first_key},
+                            Key=extra_key,
+                        )
 
         log(f"Completed OK (version {NODE_VERSION})")
         print(json.dumps({

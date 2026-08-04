@@ -4,12 +4,12 @@ Feature Scaler Node
 Scales numeric columns using StandardScaler or MinMaxScaler from scikit-learn.
 
 Reads NODE_CONTEXT from environment (same contract as all other nodes).
-Reads input parquet from S3 via boto3, writes scaled parquet back to S3.
 
-Reads two S3 credential sets (same contract as the transformer node):
-  INPUT_S3_*     - upload bucket (user source files), read-only
-  ARTIFACT_S3_*  - artifact bucket (workflow outputs), read+write
-Writes output to the exact path the platform assigns in output.files[0].path.
+Prefers the presigned GET/PUT URL the platform attaches to each input/output
+entry in NODE_CONTEXT (`presignedUrl`) — plain HTTPS, no S3 credentials
+needed. Falls back to boto3 + the INPUT_S3_*/ARTIFACT_S3_* credential env
+vars when an entry has no presignedUrl, for compatibility with a backend
+that predates the presigned-URL migration (dual mode during the rollout).
 """
 
 import os
@@ -18,6 +18,7 @@ import json
 from io import BytesIO
 
 import pandas as pd
+import requests
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 import boto3
 from botocore.config import Config
@@ -55,19 +56,28 @@ def s3_split(s3_path):
     return bucket, key
 
 
-def read_parquet(s3, s3_path):
+def read_parquet(s3, s3_path, presigned_url=None):
+    if presigned_url:
+        log(f"Reading {s3_path} via presigned URL")
+        resp = requests.get(presigned_url, timeout=300)
+        resp.raise_for_status()
+        return pd.read_parquet(BytesIO(resp.content))
     bucket, key = s3_split(s3_path)
     log(f"Reading {s3_path}")
     obj = s3.get_object(Bucket=bucket, Key=key)
     return pd.read_parquet(BytesIO(obj["Body"].read()))
 
 
-def write_parquet(s3, df, s3_path):
-    bucket, key = s3_split(s3_path)
+def write_parquet(s3, df, s3_path, presigned_url=None):
     log(f"Writing {len(df)} rows to {s3_path}")
     buf = BytesIO()
     df.to_parquet(buf, index=False, engine="pyarrow")
     buf.seek(0)
+    if presigned_url:
+        resp = requests.put(presigned_url, data=buf.getvalue(), timeout=300)
+        resp.raise_for_status()
+        return
+    bucket, key = s3_split(s3_path)
     s3.put_object(Bucket=bucket, Key=key, Body=buf.getvalue())
 
 
@@ -101,8 +111,9 @@ def main():
         return artifact_client if bucket == artifact_bucket else input_client
 
     # ── Read input ──────────────────────────────────────────────────
-    input_path = inputs[0]["output"]["path"]
-    df = read_parquet(client_for(input_path), input_path)
+    input_entry = inputs[0]["output"]
+    input_path = input_entry["path"]
+    df = read_parquet(client_for(input_path), input_path, input_entry.get("presignedUrl"))
     log(f"Loaded {len(df)} rows, {len(df.columns)} columns: {list(df.columns)}")
 
     # ── Resolve columns to scale ────────────────────────────────────
@@ -131,8 +142,9 @@ def main():
     log(f"Scaled {len(cols)} columns: {cols}")
 
     # ── Write output ────────────────────────────────────────────────
-    out_path = output["files"][0]["path"]
-    write_parquet(artifact_client, df, out_path)
+    out_entry = output["files"][0]
+    out_path = out_entry["path"]
+    write_parquet(artifact_client, df, out_path, out_entry.get("presignedUrl"))
 
     print(json.dumps({
         "success": True,

@@ -13,6 +13,11 @@ Contract:
 - Reads INPUT_S3_* / ARTIFACT_S3_* for storage.
 - Writes to the EXACT paths in output.files[i].path.
 - Prints a final JSON status to stdout; exits 0 on success, 1 on failure.
+
+Prefers the presigned GET/PUT URL the platform attaches to each input/output
+entry in NODE_CONTEXT (`presignedUrl`) — plain HTTPS, no S3 credentials
+needed. Falls back to boto3 + the INPUT_S3_*/ARTIFACT_S3_* credential env
+vars when an entry has no presignedUrl (dual mode during the rollout).
 """
 
 import json
@@ -24,6 +29,7 @@ import tempfile
 import boto3
 import numpy as np
 import pandas as pd
+import requests
 
 NODE_PREFIX = "[MISSING VALUE FILL]"
 
@@ -434,11 +440,20 @@ def main() -> None:
 
     workdir = tempfile.mkdtemp(prefix="locf_")
     try:
-        source = inputs[0]["output"]["path"]
+        input_entry = inputs[0]["output"]
+        source = input_entry["path"]
         bucket, key = split_s3_uri(source)
         local_path = os.path.join(workdir, os.path.basename(key))
-        log(f"Downloading s3://{bucket}/{key}")
-        get_s3_client_for_path(source).download_file(bucket, key, local_path)
+        presigned_url = input_entry.get("presignedUrl")
+        if presigned_url:
+            log(f"Downloading {source} via presigned URL")
+            resp = requests.get(presigned_url, timeout=300)
+            resp.raise_for_status()
+            with open(local_path, "wb") as fh:
+                fh.write(resp.content)
+        else:
+            log(f"Downloading s3://{bucket}/{key}")
+            get_s3_client_for_path(source).download_file(bucket, key, local_path)
 
         df = read_table(local_path)
         log(f"Read {len(df)} row(s), {len(df.columns)} column(s)")
@@ -454,9 +469,16 @@ def main() -> None:
                 continue
             local_out = os.path.join(workdir, f"{name}.parquet")
             frame.to_parquet(local_out, index=False)
-            out_bucket, out_key = split_s3_uri(out["path"])
-            log(f"Uploading {name} ({len(frame)} rows) to s3://{out_bucket}/{out_key}")
-            get_s3_client_for_path(out["path"]).upload_file(local_out, out_bucket, out_key)
+            out_presigned_url = out.get("presignedUrl")
+            if out_presigned_url:
+                log(f"Uploading {name} ({len(frame)} rows) -> {out['path']} via presigned URL")
+                with open(local_out, "rb") as fh:
+                    resp = requests.put(out_presigned_url, data=fh.read(), timeout=300)
+                resp.raise_for_status()
+            else:
+                out_bucket, out_key = split_s3_uri(out["path"])
+                log(f"Uploading {name} ({len(frame)} rows) to s3://{out_bucket}/{out_key}")
+                get_s3_client_for_path(out["path"]).upload_file(local_out, out_bucket, out_key)
             outputs.append({"name": name, "path": out["path"]})
 
         print(json.dumps({"success": True, "nodeName": node_name, "outputs": outputs}))
