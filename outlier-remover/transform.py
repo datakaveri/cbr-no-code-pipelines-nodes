@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 import requests
 from sklearn.ensemble import IsolationForest
-import boto3
+import storage_boto3 as boto3
 from botocore.config import Config
 
 

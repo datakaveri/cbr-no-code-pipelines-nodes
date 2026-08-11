@@ -17,7 +17,7 @@ import os
 import sys
 from urllib.parse import urlparse
 
-import boto3
+import storage_boto3 as boto3
 import requests
 
 

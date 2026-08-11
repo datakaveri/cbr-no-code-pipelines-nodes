@@ -39,6 +39,7 @@ import json
 import tempfile
 import duckdb
 import requests
+from storage_v2 import open_write, read_to_file
 
 
 def log(message: str):
@@ -166,11 +167,11 @@ def main():
         for inp in inputs:
             # Use nodeName as table name (sanitized)
             table_name = sanitize_table_name(inp["nodeName"])
-            # A presigned GET URL needs no S3 secret at all — httpfs treats a
-            # plain https:// argument as a generic HTTP resource. Falls back
-            # to the s3:// path (read via the secrets created above) when the
-            # backend hasn't attached one.
-            path = inp["output"].get("presignedUrl") or inp["output"]["path"]
+            suffix = "." + inp["output"].get("format", "parquet")
+            local_input = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+            local_input.close()
+            read_to_file(inp["output"]["path"], local_input.name)
+            path = local_input.name
             format = inp["output"].get("format", "parquet").lower()
 
             log(f"  Loading '{table_name}' from {inp['nodeName']} (format: {format})")
@@ -226,21 +227,12 @@ def main():
             else:
                 format_options = "FORMAT PARQUET"
 
-            if presigned_put_url:
-                # Write to a local temp file and PUT it ourselves rather than
-                # `COPY ... TO 'https://...'` — DuckDB's HTTP write support
-                # varies by version, whereas a local COPY + `requests.put` of
-                # a presigned S3 URL works the same everywhere.
-                with tempfile.NamedTemporaryFile(suffix=f".{output_format}") as tmp:
-                    conn.execute(f"COPY {result_table} TO '{tmp.name}' ({format_options})")
-                    with open(tmp.name, "rb") as fh:
-                        resp = requests.put(presigned_put_url, data=fh.read(), timeout=600)
-                        resp.raise_for_status()
-                log(f"  Exported {row_count} rows to {output_path} via presigned URL")
-            else:
-                export_sql = f"COPY {result_table} TO '{output_path}' ({format_options})"
-                conn.execute(export_sql)
-                log(f"  Exported {row_count} rows to {output_path}")
+            with tempfile.NamedTemporaryFile(suffix=f".{output_format}") as tmp:
+                conn.execute(f"COPY {result_table} TO '{tmp.name}' ({format_options})")
+                with open(tmp.name, "rb") as source, open_write(output_path) as destination:
+                    while block := source.read(1024 * 1024):
+                        destination.write(block)
+            log(f"  Exported {row_count} rows to {output_path} via Storage v2")
 
         log("=== Transformer Node Complete ===")
 

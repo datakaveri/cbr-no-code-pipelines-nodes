@@ -27,7 +27,7 @@ import sys
 import tempfile
 import time
 
-import boto3
+import storage_boto3 as boto3
 import requests
 from boto3.s3.transfer import TransferConfig
 from botocore.client import Config

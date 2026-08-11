@@ -26,7 +26,7 @@ import shutil
 import sys
 import tempfile
 
-import boto3
+import storage_boto3 as boto3
 import requests
 from botocore.exceptions import BotoCoreError, ClientError
 from vedo import load, merge, write

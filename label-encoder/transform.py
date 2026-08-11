@@ -25,8 +25,6 @@ from io import BytesIO
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 import requests
-import boto3
-from botocore.config import Config
 
 
 def log(msg):
@@ -37,53 +35,16 @@ def log_error(msg):
     print(f"[ENCODER ERROR] {msg}", file=sys.stderr, flush=True)
 
 
-def make_s3_client(prefix: str):
-    """Build a boto3 S3 client from {prefix}_S3_* env vars (INPUT or ARTIFACT)."""
-    use_ssl = os.environ.get(f"{prefix}_S3_USE_SSL", "false").lower() == "true"
-    endpoint = os.environ[f"{prefix}_S3_ENDPOINT"]
-    scheme = "https" if use_ssl else "http"
-
-    return boto3.client(
-        "s3",
-        endpoint_url=f"{scheme}://{endpoint}",
-        aws_access_key_id=os.environ[f"{prefix}_S3_ACCESS_KEY"],
-        aws_secret_access_key=os.environ[f"{prefix}_S3_SECRET_KEY"],
-        aws_session_token=os.environ.get(f"{prefix}_S3_SESSION_TOKEN") or None,
-        region_name=os.environ.get(f"{prefix}_S3_REGION", "us-east-1"),
-        config=Config(signature_version="s3v4"),
-    )
-
-
-def s3_split(s3_path):
-    """Split 's3://bucket/path/to/file' into (bucket, key)."""
-    path = s3_path.replace("s3://", "")
-    bucket, key = path.split("/", 1)
-    return bucket, key
-
-
-def read_parquet(s3, s3_path, presigned_url=None):
-    if presigned_url:
-        log(f"Reading {s3_path} via presigned URL")
-        resp = requests.get(presigned_url, timeout=300)
-        resp.raise_for_status()
-        return pd.read_parquet(BytesIO(resp.content))
-    bucket, key = s3_split(s3_path)
+def read_parquet(s3_path):
     log(f"Reading {s3_path}")
-    obj = s3.get_object(Bucket=bucket, Key=key)
-    return pd.read_parquet(BytesIO(obj["Body"].read()))
+    return pd.read_parquet(BytesIO(read(s3_path)))
 
 
-def write_parquet(s3, df, s3_path, presigned_url=None):
-    log(f"Writing {len(df)} rows to {s3_path}")
+def write_parquet(df, s3_path):
     buf = BytesIO()
     df.to_parquet(buf, index=False, engine="pyarrow")
-    buf.seek(0)
-    if presigned_url:
-        resp = requests.put(presigned_url, data=buf.getvalue(), timeout=300)
-        resp.raise_for_status()
-        return
-    bucket, key = s3_split(s3_path)
-    s3.put_object(Bucket=bucket, Key=key, Body=buf.getvalue())
+    with open_write(s3_path, content_type="application/vnd.apache.parquet") as out:
+        out.write(buf.getvalue())
 
 
 def main():
@@ -109,20 +70,10 @@ def main():
         log_error("No inputs provided")
         sys.exit(1)
 
-    # Inputs may live in either bucket; outputs always go to the artifact
-    # bucket. Pick the client per path by the bucket in its s3:// URI.
-    input_client = make_s3_client("INPUT")
-    artifact_client = make_s3_client("ARTIFACT")
-    artifact_bucket = os.environ["ARTIFACT_S3_BUCKET"]
-
-    def client_for(s3_path):
-        bucket, _ = s3_split(s3_path)
-        return artifact_client if bucket == artifact_bucket else input_client
-
     # ── Read input ──────────────────────────────────────────────────
     input_entry = inputs[0]["output"]
     input_path = input_entry["path"]
-    df = read_parquet(client_for(input_path), input_path, input_entry.get("presignedUrl"))
+    df = read_parquet(input_path)
     log(f"Loaded {len(df)} rows, {len(df.columns)} columns: {list(df.columns)}")
 
     # ── Resolve columns ─────────────────────────────────────────────
@@ -156,7 +107,7 @@ def main():
     # ── Write output ────────────────────────────────────────────────
     out_entry = output["files"][0]
     out_path = out_entry["path"]
-    write_parquet(artifact_client, df, out_path, out_entry.get("presignedUrl"))
+    write_parquet(df, out_path)
 
     print(json.dumps({
         "success": True,

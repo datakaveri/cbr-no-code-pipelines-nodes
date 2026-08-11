@@ -28,7 +28,7 @@ import os
 import random
 import sys
 
-import boto3
+import storage_boto3 as boto3
 import requests
 from botocore.client import Config
 

@@ -20,6 +20,7 @@ import tempfile
 
 import duckdb
 import requests
+from storage_v2 import open_write, read_to_file
 import pandas as pd
 import numpy as np
 from sklearn.cluster import KMeans, AgglomerativeClustering, SpectralClustering
@@ -195,11 +196,10 @@ def main():
 
     n_clusters = int(config.get("n_clusters", 3))
     algorithm  = config.get("algorithm", "kmeans")
-    # A presigned GET URL needs no S3 secret at all — httpfs treats a plain
-    # https:// argument as a generic HTTP resource. Falls back to the s3://
-    # path (read via the secrets created above) when the backend hasn't
-    # attached one.
-    input_path = inputs[0]["output"].get("presignedUrl") or inputs[0]["output"]["path"]
+    local_input = tempfile.NamedTemporaryFile(suffix=".parquet", delete=False)
+    local_input.close()
+    read_to_file(inputs[0]["output"]["path"], local_input.name)
+    input_path = local_input.name
     output_file = out_files[0]
     output_path = output_file["path"]
     presigned_put_url = output_file.get("presignedUrl")
@@ -227,22 +227,11 @@ def main():
 
     conn.register("result_table", result)
 
-    if presigned_put_url:
-        # Write to a local temp file and PUT it ourselves rather than
-        # `COPY ... TO 'https://...'` — DuckDB's HTTP write support varies by
-        # version, whereas a local COPY + `requests.put` of a presigned S3
-        # URL works the same everywhere.
-        log("Writing output parquet via presigned URL...")
-        with tempfile.NamedTemporaryFile(suffix=".parquet") as tmp:
-            conn.execute(f"COPY result_table TO '{tmp.name}' (FORMAT PARQUET, COMPRESSION 'snappy')")
-            with open(tmp.name, "rb") as fh:
-                resp = requests.put(presigned_put_url, data=fh.read(), timeout=600)
-                resp.raise_for_status()
-        log(f"  Exported to {output_path} via presigned URL")
-    else:
-        log("Writing output parquet to S3...")
-        conn.execute(f"COPY result_table TO '{output_path}' (FORMAT PARQUET, COMPRESSION 'snappy')")
-
+    with tempfile.NamedTemporaryFile(suffix=".parquet") as tmp:
+        conn.execute(f"COPY result_table TO '{tmp.name}' (FORMAT PARQUET, COMPRESSION 'snappy')")
+        with open(tmp.name, "rb") as source, open_write(output_path) as destination:
+            while block := source.read(1024 * 1024):
+                destination.write(block)
     log("Done.")
     print(json.dumps({
         "success": True,

@@ -18,7 +18,7 @@ import shutil
 import sys
 import tempfile
 
-import boto3
+import storage_boto3 as boto3
 import pandas as pd
 import requests
 

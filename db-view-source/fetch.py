@@ -22,7 +22,7 @@ import os
 import sys
 import tempfile
 
-import boto3
+import storage_boto3 as boto3
 import requests
 from botocore.client import Config
 from cbr_data_access import DataAccessClient

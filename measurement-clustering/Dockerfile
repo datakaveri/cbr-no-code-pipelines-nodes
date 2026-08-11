@@ -16,6 +16,6 @@ RUN pip install --no-cache-dir \
     scikit-learn==1.6.1 \
     numpy==2.2.4
 
-COPY transform.py ./
+COPY transform.py  storage_v2.py ./
 
 CMD ["python", "transform.py"]
