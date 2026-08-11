@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -v \"sdk-upstream\\\\|/sdk/\\\\|storage_boto3.py$\")"
+    ]
+  }
+}
