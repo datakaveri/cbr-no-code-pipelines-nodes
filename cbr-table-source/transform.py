@@ -62,6 +62,14 @@ def s3_key_from_path(s3_path):
     return s3_path.replace("s3://", "").split("/", 1)[1]
 
 
+def parse_request_id(raw):
+    """The access-request picker stores {request_id, use_case}; older configs
+    (and hand-edited ones) may carry the bare id string."""
+    if isinstance(raw, dict):
+        return (raw.get("request_id") or "").strip() or None
+    return (str(raw).strip() or None) if raw else None
+
+
 def parse_row_limit(raw):
     """Validate the optional row cap. Blank/None/0 means no limit (full table)."""
     if raw is None or (isinstance(raw, str) and not raw.strip()):
@@ -92,8 +100,8 @@ def main():
     node     = ctx["node"]
     output   = ctx["output"]
 
-    table_name = config["table_name"].strip()
-    view_id    = config.get("view_id", "").strip() or None
+    table_name = config["omop_table"].strip()
+    view_id    = parse_request_id(config.get("access_request"))
     row_limit  = parse_row_limit(config.get("row_limit"))
     out_files  = output["files"]
 
