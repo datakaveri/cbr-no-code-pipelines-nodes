@@ -1,5 +1,6 @@
 {
   "name": "Sleep Image",
+  "description": "Delay the pipeline for a configured number of seconds, then pass the input through",
   "githubUrl": "https://github.com/pradeep800/pipelines-nodes",
   "githubRef": "main",
   "dockerfilePath": "Dockerfile",

@@ -1,5 +1,6 @@
 {
   "name": "Correlation Report Image",
+  "description": "Calculate correlation between numeric columns",
   "githubUrl": "https://github.com/pradeep800/pipelines-nodes",
   "githubRef": "main",
   "dockerfilePath": "Dockerfile",

@@ -1,5 +1,6 @@
 {
   "name": "OMOP Wide Table Source Image",
+  "description": "Export a wide-format view of your granted OMOP cohort data",
   "githubUrl": "https://github.com/pradeep800/pipelines-nodes",
   "githubRef": "main",
   "dockerfilePath": "Dockerfile",

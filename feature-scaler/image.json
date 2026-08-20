@@ -1,5 +1,6 @@
 {
   "name": "Feature Scaler Image",
+  "description": "Scale numeric columns using StandardScaler or MinMaxScaler",
   "githubUrl": "https://github.com/pradeep800/pipelines-nodes",
   "githubRef": "main",
   "dockerfilePath": "Dockerfile",

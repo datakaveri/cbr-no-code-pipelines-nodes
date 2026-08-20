@@ -1,5 +1,6 @@
 {
   "name": "Outlier Remover Image",
+  "description": "Remove rows with outlier values from the dataset",
   "githubUrl": "https://github.com/pradeep800/pipelines-nodes",
   "githubRef": "main",
   "dockerfilePath": "Dockerfile",

@@ -1,5 +1,6 @@
 {
   "name": "SQL Transformer Image",
+  "description": "Transform data using SQL queries powered by DuckDB",
   "githubUrl": "https://github.com/pradeep800/pipelines-nodes",
   "githubRef": "main",
   "dockerfilePath": "Dockerfile",

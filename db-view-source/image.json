@@ -1,5 +1,6 @@
 {
   "name": "DB View Source Image",
+  "description": "Fetch a view from the CBR data platform",
   "githubUrl": "https://github.com/pradeep800/pipelines-nodes",
   "githubRef": "main",
   "dockerfilePath": "Dockerfile",

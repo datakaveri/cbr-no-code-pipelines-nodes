@@ -1,5 +1,6 @@
 {
   "name": "DB Table Source Image",
+  "description": "Fetch an OMOP CDM v5.4 table from the CBR data access server",
   "githubUrl": "https://github.com/pradeep800/pipelines-nodes",
   "githubRef": "main",
   "dockerfilePath": "Dockerfile",

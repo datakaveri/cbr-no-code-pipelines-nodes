@@ -1,5 +1,6 @@
 {
   "name": "Patient Measurement Clustering Image",
+  "description": "Cluster patients by clinical measurement scores using KMeans",
   "githubUrl": "https://github.com/pradeep800/pipelines-nodes",
   "githubRef": "main",
   "dockerfilePath": "Dockerfile",

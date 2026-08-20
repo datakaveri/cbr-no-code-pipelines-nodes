@@ -1,5 +1,6 @@
 {
   "name": "Missing Value Fill (LOCF) Image",
+  "description": "Carry each participant's last valid measurement forward across timepoints, with per-column validity ranges.",
   "githubUrl": "https://github.com/pradeep800/pipelines-nodes",
   "githubRef": "main",
   "dockerfilePath": "Dockerfile",

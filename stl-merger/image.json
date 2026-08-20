@@ -1,5 +1,6 @@
 {
   "name": "STL Merger Image",
+  "description": "Generate a merged STL model as a single STL artifact",
   "githubUrl": "https://github.com/pradeep800/pipelines-nodes",
   "githubRef": "main",
   "dockerfilePath": "Dockerfile",

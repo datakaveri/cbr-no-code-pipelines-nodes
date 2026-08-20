@@ -1,5 +1,6 @@
 {
   "name": "Visit Timepoint Assignment Image",
+  "description": "Convert longitudinal visit dates into study timepoints (T1, T2, ...) using CBR TLSA/SANSCOG window rules.",
   "githubUrl": "https://github.com/pradeep800/pipelines-nodes",
   "githubRef": "main",
   "dockerfilePath": "Dockerfile",

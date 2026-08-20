@@ -1,5 +1,6 @@
 {
   "name": "Auth Check Image",
+  "description": "Prints the auth credential (API_KEY or USER_JWT) injected into the Argo pod (debug only)",
   "githubUrl": "https://github.com/pradeep800/pipelines-nodes",
   "githubRef": "main",
   "dockerfilePath": "Dockerfile",

@@ -1,5 +1,6 @@
 {
   "name": "Hello CSV Source Image",
+  "description": "Generate a small synthetic patient-vitals CSV \u2014 a zero-dependency source for smoke-testing pipelines",
   "githubUrl": "https://github.com/pradeep800/pipelines-nodes",
   "githubRef": "main",
   "dockerfilePath": "Dockerfile",

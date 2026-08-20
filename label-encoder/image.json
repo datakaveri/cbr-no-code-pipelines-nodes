@@ -1,5 +1,6 @@
 {
   "name": "Label Encoder Image",
+  "description": "Convert text/categorical columns into numbers",
   "githubUrl": "https://github.com/pradeep800/pipelines-nodes",
   "githubRef": "main",
   "dockerfilePath": "Dockerfile",
