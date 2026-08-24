@@ -46,6 +46,7 @@ from typing import Literal, cast
 import polars as pl
 from sqlalchemy import text
 
+from ._arrow import opaque_to_storage
 from ._sql import qualify_statement
 
 # OMOP standard gender concept ids (CASE-matched in the query).
@@ -90,7 +91,7 @@ def _fetch_cohort_names(client: object) -> dict[int, str]:
         ) from exc
     return {
         int(cohort_id): str(name)
-        for cohort_id, name in zip(frame["cohort_id"], frame["cohort_name"])
+        for cohort_id, name in zip(frame["cohort_id"], frame["cohort_name"], strict=True)
         if cohort_id is not None and name is not None
     }
 
@@ -386,7 +387,7 @@ def _spool_long_parquet(
             for batch in client.query_arrow_stream(sql):  # type: ignore[attr-defined]
                 for offset in range(0, batch.num_rows, _FETCH_CHUNK):
                     chunk = batch.slice(offset, _FETCH_CHUNK)
-                    frame = cast(pl.DataFrame, pl.from_arrow(chunk))
+                    frame = cast(pl.DataFrame, pl.from_arrow(opaque_to_storage(chunk)))
                     frame.cast(spool_schema, strict=False).write_parquet(
                         os.path.join(spool_dir, f"part_{parts:05d}.parquet"),
                         compression="zstd",

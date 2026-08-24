@@ -36,6 +36,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import SQLAlchemyError
 
 from . import config
+from ._arrow import opaque_to_storage
 from ._sql import qualify_statement
 from .access_requests import AccessRequest, RequestList, RequestTable
 from .exceptions import (
@@ -755,7 +756,7 @@ class DataAccessClient:
                 )
             table = self._execute_adbc_arrow(sql)
             if engine == "polars":
-                return pl.from_arrow(table)
+                return pl.from_arrow(opaque_to_storage(table))
             return table.to_pandas()
 
         statement: Any = text(sql) if params else sql
@@ -874,7 +875,7 @@ class DataAccessClient:
                         for offset in range(0, batch.num_rows, chunksize):
                             chunk = batch.slice(offset, chunksize)
                             if engine == "polars":
-                                yield pl.from_arrow(chunk)
+                                yield pl.from_arrow(opaque_to_storage(chunk))
                             else:
                                 yield chunk.to_pandas()
                     return

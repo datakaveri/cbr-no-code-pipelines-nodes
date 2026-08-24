@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import warnings
 from datetime import date
 from importlib import import_module
 from types import SimpleNamespace
@@ -13,6 +14,23 @@ from cbr_data_access import DataAccessClient, DataAccessError, QueryError
 from cbr_data_access import client as client_module
 
 aggregate_module = import_module("cbr_data_access.aggregate")
+
+
+def _opaque_column(
+    name: str,
+    storage: pa.Array,
+) -> tuple[pa.Field, pa.Array]:
+    """Build an opaque column across both old and new supported PyArrow versions."""
+    metadata = {
+        b"ARROW:extension:name": b"arrow.opaque",
+        b"ARROW:extension:metadata": (
+            b'{"type_name":"measurement_value","vendor_name":"PostgreSQL"}'
+        ),
+    }
+    if hasattr(pa, "opaque"):
+        opaque_type = pa.opaque(storage.type, "measurement_value", "PostgreSQL")
+        return pa.field(name, opaque_type), pa.ExtensionArray.from_storage(opaque_type, storage)
+    return pa.field(name, storage.type, metadata=metadata), storage
 
 
 def test_adbc_uri_percent_encodes_credentials_and_ipv6() -> None:
@@ -101,6 +119,64 @@ def test_adbc_query_returns_requested_dataframe(monkeypatch: pytest.MonkeyPatch)
 
     assert pandas_result["person_id"].tolist() == [1, 2]
     assert polars_result["label"].to_list() == ["a", "b"]
+
+
+def test_adbc_polars_query_loads_opaque_columns_as_storage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = DataAccessClient(driver="adbc")
+    monkeypatch.setattr(client, "_ensure_access", lambda: SimpleNamespace(schema="req_123"))
+    opaque_field, opaque_values = _opaque_column(
+        "value_as_opaque", pa.array([b"one", None, b"three"])
+    )
+    table = pa.Table.from_arrays(
+        [opaque_values, pa.array([1, 2, 3])],
+        schema=pa.schema([opaque_field, pa.field("person_id", pa.int64())]),
+    )
+    monkeypatch.setattr(client, "_execute_adbc_arrow", lambda sql: table)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        result = client.query(
+            "SELECT value_as_opaque, person_id FROM measurement",
+            dataframe="polars",
+        )
+
+    assert result.schema == {"value_as_opaque": pl.Binary, "person_id": pl.Int64}
+    assert result["value_as_opaque"].to_list() == [b"one", None, b"three"]
+
+
+def test_adbc_polars_stream_loads_opaque_columns_as_storage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = DataAccessClient(driver="adbc")
+    monkeypatch.setattr(client, "_ensure_access", lambda: SimpleNamespace(schema="req_123"))
+    opaque_field, opaque_values = _opaque_column("value_as_opaque", pa.array(["one", "two", None]))
+    batch = pa.RecordBatch.from_arrays(
+        [opaque_values],
+        schema=pa.schema([opaque_field]),
+    )
+    monkeypatch.setattr(client, "query_arrow_stream", lambda sql: iter([batch]))
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        chunks = list(
+            client.query_stream(
+                "SELECT value_as_opaque FROM measurement",
+                chunksize=2,
+                dataframe="polars",
+            )
+        )
+
+    assert [chunk.schema for chunk in chunks] == [
+        {"value_as_opaque": pl.String},
+        {"value_as_opaque": pl.String},
+    ]
+    assert [value for chunk in chunks for value in chunk["value_as_opaque"]] == [
+        "one",
+        "two",
+        None,
+    ]
 
 
 def test_adbc_query_rejects_bind_parameters() -> None:

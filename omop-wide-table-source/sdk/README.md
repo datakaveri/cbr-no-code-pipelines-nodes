@@ -61,6 +61,19 @@ with DataAccessClient(driver="adbc") as client:
 ADBC currently supports non-parameterized reads. Keep using the default
 SQLAlchemy driver when bind parameters are required.
 
+### Opaque PostgreSQL types with ADBC
+
+The ADBC PostgreSQL driver represents database types it cannot interpret as
+Arrow `arrow.opaque` extension columns. When an ADBC query returns a Polars
+DataFrame, the SDK loads those columns as their declared Arrow storage type.
+This preserves the values, avoids Polars' unknown-extension warning, and keeps
+the behavior stable when Polars 2.0 changes its default extension handling.
+
+Use `query_arrow()` or `query_arrow_stream()` when you need native Arrow
+results: those methods retain the original `arrow.opaque` annotation and its
+PostgreSQL type metadata. The SDK does not attempt to assign vendor-specific
+semantics to opaque values.
+
 Normal use is just `client.query(...)` — it authenticates, connects,
 disconnects, and resolves plain table names against your approved access
 request for you. You don't call `connect()` yourself. If you have **several**
