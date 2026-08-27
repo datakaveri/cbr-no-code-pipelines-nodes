@@ -27,6 +27,7 @@ import json
 import os
 import shutil
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -230,6 +231,7 @@ class _SessionWriter(io.RawIOBase):
         content_type: str | None,
         *,
         _created: dict | None = None,
+        _recreate=None,  # () -> dict: re-opens a session identical to the original request
     ):
         super().__init__()
         self._buffer = bytearray()
@@ -237,13 +239,21 @@ class _SessionWriter(io.RawIOBase):
         self._urls: dict[int, str] = {}
         self._committed: dict | None = None
         self._aborted = False
+        # Everything written so far, so a session that goes stale mid-upload
+        # (see _resume_session) can be replayed into a fresh one instead of
+        # failing the whole write. Spills to disk past _COPY_BLOCK so this
+        # doesn't defeat the point of streaming for large files.
+        self._replay = tempfile.SpooledTemporaryFile(max_size=_COPY_BLOCK)
+        self._resumed = False
 
         # The part size is SERVER-chosen by default: omit chunkBytes and
         # buffer to the declaredChunkBytes the backend answers with. An
         # explicit chunk_bytes is still honored for nodes that genuinely
         # can't buffer the server's choice. `_created` adopts a session the
         # unified /create endpoint already opened (its "multipart" answer).
-        if _created is None:
+        if _recreate is not None:
+            self._recreate = _recreate
+        else:
             payload: dict = {
                 "path": _normalize_write_path(display_path),
                 "contentType": content_type or "application/octet-stream",
@@ -251,14 +261,19 @@ class _SessionWriter(io.RawIOBase):
             }
             if chunk_bytes is not None:
                 payload["chunkBytes"] = chunk_bytes
-            _created = _post("/api/node/storage/create-session", payload)
-        created = _created
+            self._recreate = lambda: _post("/api/node/storage/create-session", payload)
+        if _created is None:
+            _created = self._recreate()
+        self._adopt_session(_created)
+
+    def _adopt_session(self, created: dict) -> None:
         self._chunk_bytes: int = int(created["declaredChunkBytes"])
         self._session_id: int = created["sessionId"]
         self._checksums_pinned: bool = bool(created.get("checksumsEnabled"))
         # The first batch was signed without checksums known upfront; when
         # pinning is on those URLs are unusable for arbitrary content, so we
         # re-request per part with the real hash instead.
+        self._urls = {}
         if not self._checksums_pinned:
             for part in created.get("partUrls", []):
                 self._urls[part["partNumber"]] = part["url"]
@@ -271,6 +286,7 @@ class _SessionWriter(io.RawIOBase):
         if self._committed is not None or self._aborted:
             raise ValueError("write to a closed storage file")
         view = memoryview(bytes(data))
+        self._replay.write(view)
         self._buffer.extend(view)
         while len(self._buffer) >= self._chunk_bytes:
             chunk = bytes(self._buffer[: self._chunk_bytes])
@@ -283,13 +299,19 @@ class _SessionWriter(io.RawIOBase):
         url = None if self._checksums_pinned else self._urls.pop(part_number, None)
         if url:
             return url
-        response = _post(
-            "/api/node/storage/part-urls",
-            {
-                "sessionId": self._session_id,
-                "parts": [{"partNumber": part_number, "checksumSha256": checksum_b64}],
-            },
-        )
+        try:
+            response = _post(
+                "/api/node/storage/part-urls",
+                {
+                    "sessionId": self._session_id,
+                    "parts": [{"partNumber": part_number, "checksumSha256": checksum_b64}],
+                },
+            )
+        except StorageError as error:
+            if error.status == 404 and not self._resumed:
+                self._resume_session()
+                return self._url_for(part_number, checksum_b64)
+            raise
         for part in response["partUrls"]:
             if part["partNumber"] == part_number:
                 return part["url"]
@@ -308,6 +330,33 @@ class _SessionWriter(io.RawIOBase):
             _put_part(url, chunk, checksum, self._checksums_pinned)
         self._part_number += 1
 
+    def _resume_session(self) -> None:
+        # The session the backend gave us at open_write() time is gone by
+        # the time we come back for part URLs or commit — 404 with "session
+        # not found / belongs to a different user" is the same response for
+        # both, and in practice means the node's owner rotated their API key
+        # mid-upload, orphaning the session that was opened under the old
+        # one. Nothing about that is retryable against the SAME session, so
+        # open a fresh one and replay everything written so far into it.
+        self._resumed = True
+        _log(
+            f"session {self._session_id} invalidated mid-upload (likely an API key "
+            "rotation during the run) — opening a fresh session and replaying buffered data"
+        )
+        self._adopt_session(self._recreate())
+        self._part_number = 1
+        self._buffer = bytearray()
+        self._replay.seek(0)
+        while True:
+            block = self._replay.read(self._chunk_bytes)
+            if not block:
+                break
+            if len(block) < self._chunk_bytes:
+                self._buffer.extend(block)  # trailing remainder — flushed by the next write()/commit()
+                break
+            self._flush_part(block)
+        self._replay.seek(0, io.SEEK_END)
+
     def abort(self) -> None:
         if self._aborted or self._committed is not None:
             return
@@ -316,6 +365,8 @@ class _SessionWriter(io.RawIOBase):
             _post("/api/node/storage/abort", {"sessionId": self._session_id}, retries=1)
         except StorageError:
             pass  # session TTL + lifecycle rule clean up server-side
+        finally:
+            self._replay.close()
 
     def commit(self) -> dict:
         if self._committed is not None:
@@ -326,7 +377,18 @@ class _SessionWriter(io.RawIOBase):
         if self._buffer or self._part_number == 1:
             self._flush_part(bytes(self._buffer))
             self._buffer.clear()
-        self._committed = _post("/api/node/storage/complete", {"sessionId": self._session_id})
+        try:
+            self._committed = _post("/api/node/storage/complete", {"sessionId": self._session_id})
+        except StorageError as error:
+            if error.status == 404 and not self._resumed:
+                self._resume_session()
+                if self._buffer or self._part_number == 1:
+                    self._flush_part(bytes(self._buffer))
+                    self._buffer.clear()
+                self._committed = _post("/api/node/storage/complete", {"sessionId": self._session_id})
+            else:
+                raise
+        self._replay.close()
         return self._committed
 
     def close(self) -> None:
@@ -482,6 +544,7 @@ def _upload_known_size(display_path: str, stream, size_bytes: int, content_type:
         payload["checksumSha256"] = checksum
 
     created = _post("/api/node/storage/create", payload)
+    recreate = lambda: _post("/api/node/storage/create", payload)  # noqa: E731
 
     if created.get("kind") == "single":
         try:
@@ -492,7 +555,27 @@ def _upload_known_size(display_path: str, stream, size_bytes: int, content_type:
                 )
             pinned = bool(created.get("checksumsEnabled")) and checksum is not None
             _put_single(created["url"], body, content_type, checksum if pinned else None)
-            return _post("/api/node/storage/complete", {"sessionId": created["sessionId"]})
+            try:
+                return _post("/api/node/storage/complete", {"sessionId": created["sessionId"]})
+            except StorageError as error:
+                if error.status != 404:
+                    raise
+                # Same "session not found / wrong owner" race as the multipart
+                # path below — the session opened moments ago is already gone
+                # (typically an API key rotation mid-upload). The whole body
+                # is still in memory, so just redo it against a fresh session.
+                _log(
+                    f"session {created['sessionId']} invalidated before commit "
+                    "(likely an API key rotation during the run) — retrying with a fresh session"
+                )
+                created = recreate()
+                if created.get("kind") == "single":
+                    pinned = bool(created.get("checksumsEnabled")) and checksum is not None
+                    _put_single(created["url"], body, content_type, checksum if pinned else None)
+                    return _post("/api/node/storage/complete", {"sessionId": created["sessionId"]})
+                with _SessionWriter(display_path, None, content_type, _created=created, _recreate=recreate) as writer:
+                    writer.write(body)
+                return writer.result
         except BaseException:
             # Never leave a half-done session holding quota reservation.
             try:
@@ -502,8 +585,9 @@ def _upload_known_size(display_path: str, stream, size_bytes: int, content_type:
             raise
 
     # "multipart" — stream through the standard session machinery (which
-    # aborts on exception via its context manager).
-    with _SessionWriter(display_path, None, content_type, _created=created) as writer:
+    # aborts on exception via its context manager, and transparently reopens
+    # the session on the same 404 race if it happens mid-stream).
+    with _SessionWriter(display_path, None, content_type, _created=created, _recreate=recreate) as writer:
         shutil.copyfileobj(stream, writer, length=_COPY_BLOCK)
     return writer.result
 
