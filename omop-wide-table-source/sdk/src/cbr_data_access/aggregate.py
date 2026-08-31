@@ -54,25 +54,14 @@ GENDER_CONCEPT_ID_MALE = 8507
 GENDER_CONCEPT_ID_FEMALE = 8532
 
 # Cohort registry: id -> display name for the exported ``Cohort`` column,
-# read at aggregate time from the request's ``cohort_mappings`` table. Only
-# rows with ``is_active`` and this organization participate in aggregation
-# (currently 101 SANSCOG and 102 TLSA). This replaces the old hardcoded
+# read at aggregate time from the request's ``cohort_mappings`` table. Every
+# ``is_active`` row participates in aggregation, whichever organization owns
+# the cohort — the registry is already scoped by the access request, so the
+# SDK does not filter by ``org_name``. This replaces the old hardcoded
 # ``{101: "SANSCOG", 102: "TLSA"}`` map, so a newly activated cohort exports
 # under its proper name without an SDK release.
-COHORT_ORG_NAME = "Centre for Brain Research"
-
-
-def _cohort_mappings_sql(org_name: str = COHORT_ORG_NAME) -> str:
-    """Registry SELECT with the org inlined as an escaped string literal.
-
-    A literal rather than a bind parameter keeps the query valid on the ADBC
-    path, which accepts no bind parameters through the proxy.
-    """
-    literal = org_name.replace("'", "''")
-    return (
-        "SELECT cohort_id, cohort_name FROM cohort_mappings "
-        f"WHERE is_active AND org_name = '{literal}'"
-    )
+# No bind parameters: the proxy's ADBC path accepts none.
+_COHORT_MAPPINGS_SQL = "SELECT cohort_id, cohort_name FROM cohort_mappings WHERE is_active"
 
 
 def _fetch_cohort_names(client: object) -> dict[int, str]:
@@ -83,7 +72,7 @@ def _fetch_cohort_names(client: object) -> dict[int, str]:
             is not granted by the access request).
     """
     try:
-        frame = client.query(_cohort_mappings_sql(), dataframe="polars")  # type: ignore[attr-defined]
+        frame = client.query(_COHORT_MAPPINGS_SQL, dataframe="polars")  # type: ignore[attr-defined]
     except Exception as exc:
         raise RuntimeError(
             f"Could not read the cohort_mappings table "
@@ -839,7 +828,7 @@ def aggregate(
     source_field = _check_source_field(source_field)
     report = _progress_reporter(progress)
     # The cohort registry (id -> name) comes from the request's cohort_mappings
-    # table; only cohorts active there for this org participate in aggregation.
+    # table; only cohorts active there participate in aggregation.
     cohort_names = _fetch_cohort_names(client)
     # A single-cohort export drops the Cohort column (it's constant); a full
     # export keeps it as the leading identity column so same-barcode rows from
@@ -848,7 +837,7 @@ def aggregate(
         cohort_id = _resolve_cohort_id(cohort, cohort_names)
         if cohort_id not in cohort_names:
             raise ValueError(
-                f"Cohort {cohort_id} is not an active {COHORT_ORG_NAME} cohort; "
+                f"Cohort {cohort_id} is not an active cohort; "
                 f"active cohorts: {sorted(cohort_names)}"
             )
         cohorts = [cohort_id]
@@ -863,7 +852,7 @@ def aggregate(
         drop_cohort = False
         index_cols = ["Cohort", *_INDEX_COLS]
     if not cohorts:
-        raise RuntimeError(f"The access request grants no active {COHORT_ORG_NAME} cohorts.")
+        raise RuntimeError("The access request grants no active cohorts.")
 
     datasets = _aggregate_cohorts(
         client,
