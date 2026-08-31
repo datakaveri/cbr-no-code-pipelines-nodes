@@ -5,7 +5,7 @@ import pytest
 
 from cbr_data_access.aggregate import (
     _coerce_wide_numerics,
-    _cohort_mappings_sql,
+    _COHORT_MAPPINGS_SQL,
     _fetch_cohort_names,
     _finalize_dataset_frames,
     _long_sql_for,
@@ -15,14 +15,12 @@ from cbr_data_access.aggregate import (
 _COHORT_NAMES = {101: "SANSCOG", 102: "TLSA"}
 
 
-def test_cohort_mappings_sql_selects_active_cohorts_for_the_cbr_org() -> None:
-    sql = _cohort_mappings_sql()
-
-    assert "FROM cohort_mappings" in sql
-    assert "is_active" in sql
-    assert "org_name = 'Centre for Brain Research'" in sql
-    # Org names are inlined as escaped literals, never raw.
-    assert "org_name = 'O''Brien'" in _cohort_mappings_sql("O'Brien")
+def test_cohort_mappings_sql_selects_every_active_cohort() -> None:
+    assert "FROM cohort_mappings" in _COHORT_MAPPINGS_SQL
+    assert "is_active" in _COHORT_MAPPINGS_SQL
+    # Any organization's cohorts are exportable; the registry is scoped by the
+    # access request, not by an SDK-side org filter.
+    assert "org_name" not in _COHORT_MAPPINGS_SQL
 
 
 def test_fetch_cohort_names_reads_the_registry_through_the_client() -> None:

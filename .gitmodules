@@ -1,4 +1,4 @@
 [submodule "omop-wide-table-source/sdk"]
 	path = omop-wide-table-source/sdk-upstream
 	url = https://github.com/datakaveri/cbr-data-access-ipynb-sdk
-	branch = main
+	branch = any-cohort-org
