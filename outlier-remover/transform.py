@@ -23,6 +23,7 @@ import pandas as pd
 import requests
 from sklearn.ensemble import IsolationForest
 import storage_boto3 as boto3
+from storage_v2 import read as storage_read
 from botocore.config import Config
 
 
@@ -55,15 +56,15 @@ def s3_split(s3_path):
     return bucket, key
 
 
-def read_parquet(s3, s3_path, presigned_url=None):
-    if presigned_url:
-        log(f"Reading {s3_path} via presigned URL")
-        resp = requests.get(presigned_url, timeout=300)
-        resp.raise_for_status()
-        return pd.read_parquet(BytesIO(resp.content))
-    bucket, key = s3_split(s3_path)
-    obj = s3.get_object(Bucket=bucket, Key=key)
-    return pd.read_parquet(BytesIO(obj["Body"].read()))
+def read_parquet(s3_path):
+    # Always re-resolve at read time via storage_v2 (POST /api/node/storage/
+    # download-url) instead of trusting a presignedUrl handed in NODE_CONTEXT:
+    # that field is signed at workflow-submit time, before an upstream node in
+    # this same run has written anything, so for same-run inputs it points at
+    # a key that doesn't exist yet and 404s. storage_read() fetches a fresh
+    # URL against the file's CURRENT version, which is race-free.
+    log(f"Reading {s3_path}")
+    return pd.read_parquet(BytesIO(storage_read(s3_path)))
 
 
 def write_parquet(s3, df, s3_path, presigned_url=None):
@@ -133,19 +134,12 @@ def main():
         log_error("No inputs provided")
         sys.exit(1)
 
-    # Inputs may live in either bucket; outputs always go to the artifact
-    # bucket. Pick the client per path by the bucket in its s3:// URI.
-    input_client = make_s3_client("INPUT")
+    # Outputs always go to the artifact bucket.
     artifact_client = make_s3_client("ARTIFACT")
-    artifact_bucket = os.environ["ARTIFACT_S3_BUCKET"]
-
-    def client_for(s3_path):
-        bucket, _ = s3_split(s3_path)
-        return artifact_client if bucket == artifact_bucket else input_client
 
     input_entry = inputs[0]["output"]
     input_path = input_entry["path"]
-    df = read_parquet(client_for(input_path), input_path, input_entry.get("presignedUrl"))
+    df = read_parquet(input_path)
     rows_before = len(df)
     log(f"Loaded {rows_before} rows, {len(df.columns)} columns")
 

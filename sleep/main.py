@@ -9,9 +9,11 @@ stages, execution timeouts, and short-lived STS credential expiry.
 
 Follows the NodeContext contract - receives a single NODE_CONTEXT JSON.
 
-Resource Environment Variables (two buckets, one credential set each):
-  INPUT_S3_*         - Upload bucket (user source files), read-only
-  ARTIFACT_S3_*      - Artifact bucket (workflow outputs), read+write
+The input is always re-read at read time via storage_v2 (POST /api/node/
+storage/download-url), which resolves the source's CURRENT version regardless
+of which bucket it lives in — race-free for an upstream node that wrote its
+output in this same run. Output is written via the platform's presigned PUT
+URL when attached, falling back to boto3 + ARTIFACT_S3_* credentials:
     *_ENDPOINT       - S3 endpoint (host:port, no scheme)
     *_ACCESS_KEY     - STS access key
     *_SECRET_KEY     - STS secret key
@@ -24,13 +26,12 @@ Resource Environment Variables (two buckets, one credential set each):
 import json
 import os
 import sys
-import tempfile
 import time
 
 import storage_boto3 as boto3
 import requests
-from boto3.s3.transfer import TransferConfig
 from botocore.client import Config
+from storage_v2 import read as storage_read
 
 # Bump this on every code change so a run's logs prove which build is live.
 NODE_VERSION = "2026-07-14.1"
@@ -117,7 +118,6 @@ def main():
             raise ValueError("Sleep node requires one upstream input to pass through")
         src_entry = inputs[0]["output"]
         src_path = src_entry["path"]
-        src_presigned_url = src_entry.get("presignedUrl")
 
         log(f"Node: {node['name']} | Sleep: {duration:.0f}s | Passthrough: {src_path}")
 
@@ -135,83 +135,45 @@ def main():
         os.environ.setdefault("AWS_REQUEST_CHECKSUM_CALCULATION", "when_required")
         os.environ.setdefault("AWS_RESPONSE_CHECKSUM_VALIDATION", "when_required")
 
-        artifact_bucket = os.environ["ARTIFACT_S3_BUCKET"]
         artifact_s3 = get_s3_client("ARTIFACT")
 
-        src_bucket, src_key = split_s3(src_path)
+        # Always re-resolve the source at read time via storage_v2 (POST
+        # /api/node/storage/download-url) instead of trusting
+        # src_entry["presignedUrl"] or doing a raw boto3 copy_object/
+        # download_file keyed off src_path: that path is the LOGICAL path the
+        # platform assigns, signed/resolved at workflow-submit time before an
+        # upstream node in this same run has written anything, so it can point
+        # at a key that doesn't exist yet and 404s. storage_read() fetches
+        # fresh bytes against the file's CURRENT version, which is race-free
+        # regardless of which bucket the source lives in.
+        log(f"Reading {src_path} ...")
+        data = storage_read(src_path)
+        log(f"Read {len(data)} bytes; writing through")
+
         # Write to the exact path the platform assigned (always artifact bucket).
         main_out = out_files[0]
         main_presigned_url = main_out.get("presignedUrl")
         dest_bucket, dest_key = split_s3(main_out["path"])
 
-        # `data` is populated only when the presigned GET+PUT path below runs,
-        # so extra outputs can reuse the already-fetched bytes instead of
-        # re-downloading them.
-        data = None
-
-        if src_presigned_url and main_presigned_url:
-            # Preferred: plain HTTPS through the platform's presigned URLs, no
-            # S3 credentials needed on either end.
-            log(f"Passthrough via presigned URLs: {src_path} -> {main_out['path']}")
-            resp = requests.get(src_presigned_url, timeout=300)
-            resp.raise_for_status()
-            data = resp.content
+        if main_presigned_url:
+            log(f"Uploading -> {main_out['path']} via presigned URL")
             resp = requests.put(main_presigned_url, data=data, timeout=300)
             resp.raise_for_status()
-        elif src_bucket == artifact_bucket:
-            # Same bucket and credentials: single-request server-side copy.
-            log(f"Server-side copy s3://{src_bucket}/{src_key} -> s3://{dest_bucket}/{dest_key}")
-            artifact_s3.copy_object(
-                Bucket=dest_bucket,
-                CopySource={"Bucket": src_bucket, "Key": src_key},
-                Key=dest_key,
-            )
         else:
-            # Cross-bucket (upload -> artifact): each bucket has its own
-            # credentials, so a server-side copy can't span them — stream
-            # through the pod instead.
-            input_s3 = get_s3_client("INPUT")
-            with tempfile.TemporaryDirectory() as tmp:
-                local_path = os.path.join(tmp, "passthrough")
-                log(f"Downloading s3://{src_bucket}/{src_key} ...")
-                input_s3.download_file(src_bucket, src_key, local_path)
-                size_mb = os.path.getsize(local_path) / 1e6
+            log(f"Uploading -> s3://{dest_bucket}/{dest_key}")
+            artifact_s3.put_object(Bucket=dest_bucket, Key=dest_key, Body=data)
 
-                # This S3 endpoint doesn't support multipart uploads, so force a
-                # single PUT by raising the threshold above any realistic size.
-                transfer = TransferConfig(
-                    multipart_threshold=5 * 1024 * 1024 * 1024,  # 5 GiB: never split
-                    use_threads=False,
-                )
-                log(f"Uploading {size_mb:.1f} MB -> s3://{dest_bucket}/{dest_key} ...")
-                artifact_s3.upload_file(local_path, dest_bucket, dest_key, Config=transfer)
-
-        # Additional outputs share the same bytes. There's no presigned
-        # equivalent of copy_object: if the main step already pulled the bytes
-        # into memory (presigned path above), reuse them for a direct PUT;
-        # otherwise re-fetch via a fresh presigned GET of the source when both
-        # ends have a presignedUrl, falling back to the original server-side
-        # copy_object otherwise.
+        # Additional outputs share the same already-fetched bytes.
         for f in out_files[1:]:
             extra_presigned_url = f.get("presignedUrl")
-            if extra_presigned_url and data is not None:
-                log(f"Uploading -> {f['path']} via presigned URL (extra output)...")
+            if extra_presigned_url:
+                log(f"Uploading -> {f['path']} via presigned URL (extra output)")
                 resp = requests.put(extra_presigned_url, data=data, timeout=300)
-                resp.raise_for_status()
-            elif extra_presigned_url and src_presigned_url:
-                log(f"Uploading -> {f['path']} via presigned URL (extra output, re-fetched)...")
-                resp = requests.get(src_presigned_url, timeout=300)
-                resp.raise_for_status()
-                resp = requests.put(extra_presigned_url, data=resp.content, timeout=300)
                 resp.raise_for_status()
             else:
                 _, extra_key = split_s3(f["path"])
-                log(f"Copying to s3://{dest_bucket}/{extra_key} ...")
-                artifact_s3.copy_object(
-                    Bucket=dest_bucket,
-                    CopySource={"Bucket": dest_bucket, "Key": dest_key},
-                    Key=extra_key,
-                )
+                log(f"Uploading -> s3://{dest_bucket}/{extra_key} (extra output)")
+                artifact_s3.put_object(Bucket=dest_bucket, Key=extra_key, Body=data)
 
         log(f"Completed OK (version {NODE_VERSION})")
         print(json.dumps({

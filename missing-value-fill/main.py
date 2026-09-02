@@ -14,10 +14,11 @@ Contract:
 - Writes to the EXACT paths in output.files[i].path.
 - Prints a final JSON status to stdout; exits 0 on success, 1 on failure.
 
-Prefers the presigned GET/PUT URL the platform attaches to each input/output
-entry in NODE_CONTEXT (`presignedUrl`) — plain HTTPS, no S3 credentials
-needed. Falls back to boto3 + the INPUT_S3_*/ARTIFACT_S3_* credential env
-vars when an entry has no presignedUrl (dual mode during the rollout).
+Reads always go through storage_v2.read_to_file(), which re-resolves a fresh
+presigned GET at read time (race-free for same-run upstream outputs). Writes
+prefer the presigned PUT URL the platform attaches to each output entry in
+NODE_CONTEXT (`presignedUrl`) — plain HTTPS, no S3 credentials needed — and
+fall back to boto3 + ARTIFACT_S3_* credentials when an entry has none.
 """
 
 import json
@@ -30,6 +31,7 @@ import storage_boto3 as boto3
 import numpy as np
 import pandas as pd
 import requests
+from storage_v2 import read_to_file
 
 NODE_PREFIX = "[MISSING VALUE FILL]"
 
@@ -442,18 +444,16 @@ def main() -> None:
     try:
         input_entry = inputs[0]["output"]
         source = input_entry["path"]
-        bucket, key = split_s3_uri(source)
+        _, key = split_s3_uri(source)
         local_path = os.path.join(workdir, os.path.basename(key))
-        presigned_url = input_entry.get("presignedUrl")
-        if presigned_url:
-            log(f"Downloading {source} via presigned URL")
-            resp = requests.get(presigned_url, timeout=300)
-            resp.raise_for_status()
-            with open(local_path, "wb") as fh:
-                fh.write(resp.content)
-        else:
-            log(f"Downloading s3://{bucket}/{key}")
-            get_s3_client_for_path(source).download_file(bucket, key, local_path)
+        # Always re-resolve at read time via storage_v2 (POST /api/node/storage/
+        # download-url) instead of trusting input_entry["presignedUrl"]: that
+        # field is signed at workflow-submit time, before an upstream node in
+        # this same run has written anything, so for same-run inputs it points
+        # at a key that doesn't exist yet and 404s. read_to_file() fetches a
+        # fresh URL against the file's CURRENT version, which is race-free.
+        log(f"Downloading {source}")
+        read_to_file(source, local_path)
 
         df = read_table(local_path)
         log(f"Read {len(df)} row(s), {len(df.columns)} column(s)")
