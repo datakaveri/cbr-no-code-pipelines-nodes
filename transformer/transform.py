@@ -4,6 +4,9 @@ SQL Transformer - Custom Node Container
 
 Executes SQL transformations using DuckDB and exports results to S3.
 Follows the new NodeContext contract - receives a single NODE_CONTEXT JSON.
+All storage reads/writes go through storage_v2 (presigned URLs via the
+backend's API-key-authenticated API) — see storage_v2.py for its required
+env vars (BACKEND_URL, API_KEY, NODE_CONTEXT).
 
 Environment Variables:
   NODE_CONTEXT       - JSON object with structure:
@@ -20,17 +23,6 @@ Environment Variables:
                          },
                          "config": { "sql": "SELECT * FROM ...", ... }
                        }
-
-Resource Environment Variables (two buckets, one credential set each):
-  INPUT_S3_*         - Upload bucket (user source files), read-only
-  ARTIFACT_S3_*      - Artifact bucket (workflow outputs), read+write
-    *_ENDPOINT       - S3 endpoint (host:port, no scheme)
-    *_ACCESS_KEY     - STS access key
-    *_SECRET_KEY     - STS secret key
-    *_SESSION_TOKEN  - STS session token (optional)
-    *_BUCKET         - Bucket name
-    *_USE_SSL        - Use SSL for S3 (default: false)
-    *_REGION         - S3 region (default: us-east-1)
 """
 
 import os
@@ -65,42 +57,6 @@ def parse_node_context() -> dict:
         return json.loads(ctx_str)
     except json.JSONDecodeError as e:
         raise ValueError(f"Failed to parse NODE_CONTEXT: {e}")
-
-
-def create_s3_secret(conn, name: str, prefix: str, bucket_env_var: str):
-    """Create a DuckDB S3 secret scoped to one bucket from {prefix}_S3_* env vars.
-
-    Fallback path only, used for an input/output that has no presignedUrl
-    (see main()). Two secrets (INPUT + ARTIFACT) are created when their
-    credential env vars are present; DuckDB picks the matching one per query
-    from the path's bucket, so reads from the read-only upload bucket and
-    writes to the read+write artifact bucket each use the right credentials.
-    Skipped (not an error) when the env vars are absent — once a future
-    backend stops injecting STS credentials, every entry is expected to carry
-    a presignedUrl and this fallback is simply unused.
-    """
-    if not os.environ.get(f"{prefix}_S3_ACCESS_KEY"):
-        log(f"No {prefix}_S3_ACCESS_KEY configured, skipping {name} (presigned-URL-only mode)")
-        return
-
-    bucket = os.environ[bucket_env_var]
-    session_token = os.environ.get(f"{prefix}_S3_SESSION_TOKEN", "")
-    session_token_clause = ""
-    if session_token:
-        session_token_clause = f",\n                SESSION_TOKEN '{session_token}'"
-
-    conn.execute(f"""
-        CREATE SECRET {name} (
-            TYPE S3,
-            KEY_ID '{os.environ[f"{prefix}_S3_ACCESS_KEY"]}',
-            SECRET '{os.environ[f"{prefix}_S3_SECRET_KEY"]}',
-            ENDPOINT '{os.environ[f"{prefix}_S3_ENDPOINT"]}',
-            SCOPE 's3://{bucket}',
-            URL_STYLE 'path',
-            USE_SSL {os.environ.get(f"{prefix}_S3_USE_SSL", "false").lower()},
-            REGION '{os.environ.get(f"{prefix}_S3_REGION", "us-east-1")}'{session_token_clause}
-        )
-    """)
 
 
 def validate_context(ctx: dict):
@@ -149,19 +105,6 @@ def main():
     conn = duckdb.connect(":memory:")
 
     try:
-        # Load httpfs extension
-        log("Loading httpfs extension...")
-        conn.load_extension("httpfs")
-
-        # Configure S3 — one scoped secret per bucket. DuckDB selects the
-        # matching secret per query from the path's bucket prefix, so inputs
-        # from the read-only upload bucket and writes to the read+write
-        # artifact bucket both work.
-        log("Configuring S3 connection...")
-        create_s3_secret(conn, "input_secret", "INPUT", "INPUT_S3_BUCKET")
-        create_s3_secret(conn, "artifact_secret", "ARTIFACT", "ARTIFACT_S3_BUCKET")
-        log("S3 secrets configured successfully")
-
         # Load all inputs as tables
         log("Loading inputs...")
         for inp in inputs:
