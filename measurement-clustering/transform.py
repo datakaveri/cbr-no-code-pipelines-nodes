@@ -6,12 +6,10 @@ Pivots an OMOP-format measurement table (person_id, measurement_id,
 measurement_source_value, value_as_number) so each patient becomes one row,
 runs KMeans clustering on the resulting feature matrix, and writes a
 per-patient summary table with PCA coordinates, a human-readable severity
-cluster label, and clinical summary scores (HAM-D, PSQI, CDR). Uses DuckDB
-for S3 I/O, following the same pattern as the transformer node.
-
-Reads two S3 credential sets (same contract as the transformer node):
-  INPUT_S3_*     - upload bucket (user source files), read-only
-  ARTIFACT_S3_*  - artifact bucket (workflow outputs), read+write
+cluster label, and clinical summary scores (HAM-D, PSQI, CDR). All storage
+reads/writes go through storage_v2 (presigned URLs via the backend's
+API-key-authenticated API); DuckDB itself only ever touches the local temp
+file storage_v2 downloads to, never S3 directly.
 Writes output to the exact path the platform assigns in output.files[0].path.
 """
 
@@ -35,45 +33,6 @@ def log(msg):
 
 def log_error(msg):
     print(f"[CLUSTERING ERROR] {msg}", file=sys.stderr, flush=True)
-
-
-def create_s3_secret(conn, name: str, prefix: str, bucket_env_var: str):
-    """Create a DuckDB S3 secret scoped to one bucket from {prefix}_S3_* env vars.
-
-    Fallback path only, used for an input/output that has no presignedUrl
-    (see main()). Two secrets (INPUT + ARTIFACT) are created when their
-    credential env vars are present; DuckDB picks the matching one per query
-    from the path's bucket, so reads from the read-only upload bucket and
-    writes to the read+write artifact bucket each use the right credentials.
-    Skipped (not an error) when the env vars are absent — once a future
-    backend stops injecting STS credentials, every entry is expected to carry
-    a presignedUrl and this fallback is simply unused.
-    """
-    if not os.environ.get(f"{prefix}_S3_ACCESS_KEY"):
-        log(f"No {prefix}_S3_ACCESS_KEY configured, skipping {name} (presigned-URL-only mode)")
-        return
-
-    bucket = os.environ[bucket_env_var]
-    session_token = os.environ.get(f"{prefix}_S3_SESSION_TOKEN", "")
-    token_clause = f",\n        SESSION_TOKEN '{session_token}'" if session_token else ""
-    conn.execute(f"""
-        CREATE SECRET {name} (
-            TYPE S3,
-            KEY_ID '{os.environ[f"{prefix}_S3_ACCESS_KEY"]}',
-            SECRET '{os.environ[f"{prefix}_S3_SECRET_KEY"]}',
-            ENDPOINT '{os.environ[f"{prefix}_S3_ENDPOINT"]}',
-            SCOPE 's3://{bucket}',
-            URL_STYLE 'path',
-            USE_SSL {os.environ.get(f"{prefix}_S3_USE_SSL", "false").lower()},
-            REGION '{os.environ.get(f"{prefix}_S3_REGION", "us-east-1")}'{token_clause}
-        )
-    """)
-
-
-def setup_duckdb_s3(conn):
-    conn.load_extension("httpfs")
-    create_s3_secret(conn, "input_secret", "INPUT", "INPUT_S3_BUCKET")
-    create_s3_secret(conn, "artifact_secret", "ARTIFACT", "ARTIFACT_S3_BUCKET")
 
 
 def run_clustering(df: pd.DataFrame, n_clusters: int) -> pd.DataFrame:
@@ -158,7 +117,6 @@ def main():
     log(f"n_clusters: {n_clusters}")
 
     conn = duckdb.connect(":memory:")
-    setup_duckdb_s3(conn)
 
     if input_format == "csv":
         read_func = "read_csv_auto"
