@@ -10,6 +10,7 @@ RUN pip install --no-cache-dir duckdb requests==2.32.3
 RUN python -c "import duckdb; conn = duckdb.connect(); conn.install_extension('httpfs'); conn.close()"
 
 # Copy script
-COPY transform.py  storage_v2.py ./
+COPY transform.py ./
+COPY pipeline_sdk/ ./pipeline_sdk/
 
 CMD ["python", "transform.py"]

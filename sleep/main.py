@@ -9,7 +9,7 @@ stages, execution timeouts, and short-lived STS credential expiry.
 
 Follows the NodeContext contract - receives a single NODE_CONTEXT JSON.
 
-The input is always re-read at read time via storage_v2 (POST /api/node/
+The input is always re-read at read time via pipeline_sdk.storage (POST /api/node/
 storage/download-url), which resolves the source's CURRENT version regardless
 of which bucket it lives in — race-free for an upstream node that wrote its
 output in this same run. Output is written via the platform's presigned PUT
@@ -28,10 +28,10 @@ import os
 import sys
 import time
 
-import storage_boto3 as boto3
+from pipeline_sdk import boto3_compat as boto3
+from pipeline_sdk import env
 import requests
-from botocore.client import Config
-from storage_v2 import read as storage_read
+from pipeline_sdk.storage import read as storage_read
 
 # Bump this on every code change so a run's logs prove which build is live.
 NODE_VERSION = "2026-07-14.1"
@@ -46,9 +46,7 @@ def log_error(msg):
 
 
 def parse_context():
-    raw = os.environ.get("NODE_CONTEXT", "")
-    if not raw:
-        raise ValueError("NODE_CONTEXT is required")
+    raw = env.node_context_raw()
     return json.loads(raw)
 
 
@@ -73,20 +71,10 @@ def parse_duration(raw):
 
 
 def get_s3_client(prefix):
-    """Build a boto3 client from the {prefix}_S3_* env vars (INPUT or ARTIFACT)."""
-    endpoint = os.environ[f"{prefix}_S3_ENDPOINT"]
-    use_ssl = os.environ.get(f"{prefix}_S3_USE_SSL", "false").lower() == "true"
-    if "://" not in endpoint:
-        endpoint = ("https://" if use_ssl else "http://") + endpoint
-    return boto3.client(
-        "s3",
-        endpoint_url=endpoint,
-        aws_access_key_id=os.environ[f"{prefix}_S3_ACCESS_KEY"],
-        aws_secret_access_key=os.environ[f"{prefix}_S3_SECRET_KEY"],
-        aws_session_token=os.environ.get(f"{prefix}_S3_SESSION_TOKEN") or None,
-        region_name=os.environ.get(f"{prefix}_S3_REGION", "us-east-1"),
-        config=Config(signature_version="s3v4"),
-    )
+    """The storage adapter client (pipeline_sdk.boto3_compat): reads and writes
+    go through the backend, so no endpoint or credential is needed here. The
+    parameters are kept so call sites don't change."""
+    return boto3.client("s3")
 
 
 def sleep_with_heartbeat(seconds):
@@ -137,7 +125,7 @@ def main():
 
         artifact_s3 = get_s3_client("ARTIFACT")
 
-        # Always re-resolve the source at read time via storage_v2 (POST
+        # Always re-resolve the source at read time via pipeline_sdk.storage (POST
         # /api/node/storage/download-url) instead of trusting
         # src_entry["presignedUrl"] or doing a raw boto3 copy_object/
         # download_file keyed off src_path: that path is the LOGICAL path the

@@ -2,7 +2,8 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY requirements.txt main.py  storage_v2.py storage_boto3.py ./
+COPY requirements.txt main.py ./
+COPY pipeline_sdk/ ./pipeline_sdk/
 
 RUN pip install --no-cache-dir -r requirements.txt
 

@@ -9,6 +9,7 @@ RUN pip install --no-cache-dir \
     requests==2.32.3
 
 WORKDIR /app
-COPY transform.py  storage_v2.py storage_boto3.py ./
+COPY transform.py ./
+COPY pipeline_sdk/ ./pipeline_sdk/
 
 CMD ["python", "transform.py"]

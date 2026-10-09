@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY sdk/ ./sdk/
 RUN pip install --no-cache-dir --timeout 1800 ./sdk/ boto3 requests==2.32.3
 
-COPY fetch.py  storage_v2.py storage_boto3.py ./
+COPY fetch.py ./
+COPY pipeline_sdk/ ./pipeline_sdk/
 
 CMD ["python", "fetch.py"]

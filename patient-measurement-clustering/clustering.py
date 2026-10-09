@@ -6,21 +6,21 @@ Output : result.parquet with PCA coords + cluster labels + clinical scores
 
 Runtime contract:
   - Reads NODE_CONTEXT (JSON env var) for inputs/outputs/config
-  - All storage reads/writes go through storage_v2 (presigned URLs via the
+  - All storage reads/writes go through pipeline_sdk.storage (presigned URLs via the
     backend's API-key-authenticated API); DuckDB itself only ever touches
-    the local temp file storage_v2 downloads to, never S3 directly.
+    the local temp file pipeline_sdk.storage downloads to, never S3 directly.
   - Writes output to the exact path in output.files[0].path
   - Prints a JSON status line to stdout; exits 0 on success / 1 on failure
 """
 
 import json
-import os
 import sys
 import tempfile
 
 import duckdb
 import requests
-from storage_v2 import open_write, read_to_file
+from pipeline_sdk import env
+from pipeline_sdk.storage import open_write, read_to_file
 import pandas as pd
 import numpy as np
 from sklearn.cluster import KMeans, AgglomerativeClustering, SpectralClustering
@@ -149,7 +149,7 @@ def cluster_patients(df: pd.DataFrame, n_clusters: int, algorithm: str = "kmeans
 
 
 def main():
-    ctx = json.loads(os.environ["NODE_CONTEXT"])
+    ctx = json.loads(env.node_context_raw())
     node_name = ctx["node"]["name"]
     config = ctx.get("config", {})
     inputs = ctx.get("inputs", [])

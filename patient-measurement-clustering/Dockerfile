@@ -5,7 +5,8 @@ FROM python:3.11-slim
 WORKDIR /app
 
 COPY --from=uv /uv /usr/local/bin/uv
-COPY requirements.txt clustering.py  storage_v2.py ./
+COPY requirements.txt clustering.py ./
+COPY pipeline_sdk/ ./pipeline_sdk/
 
 RUN uv pip install --system --no-cache -r requirements.txt
 

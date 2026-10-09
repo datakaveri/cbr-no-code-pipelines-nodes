@@ -16,6 +16,7 @@ RUN pip install --no-cache-dir \
     scikit-learn==1.6.1 \
     numpy==2.2.4
 
-COPY transform.py  storage_v2.py ./
+COPY transform.py ./
+COPY pipeline_sdk/ ./pipeline_sdk/
 
 CMD ["python", "transform.py"]

@@ -12,14 +12,14 @@ vars when an entry has no presignedUrl, for compatibility with a backend
 that predates the presigned-URL migration (dual mode during the rollout).
 """
 
-import os
 import sys
 import json
 from io import BytesIO
 
 import pandas as pd
 import requests
-from storage_v2 import open_write, read
+from pipeline_sdk import env
+from pipeline_sdk.storage import open_write, read
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 
@@ -46,7 +46,7 @@ def write_parquet(df, s3_path):
 
 def main():
     # ── Parse context ───────────────────────────────────────────────
-    ctx = json.loads(os.environ["NODE_CONTEXT"])
+    ctx = json.loads(env.node_context_raw())
     config  = ctx["config"]
     inputs  = ctx["inputs"]
     output  = ctx["output"]

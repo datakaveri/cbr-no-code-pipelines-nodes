@@ -21,14 +21,14 @@ needed. Falls back to boto3 + the INPUT_S3_*/ARTIFACT_S3_* credential env
 vars when an entry has no presignedUrl (dual mode during the rollout).
 """
 
-import os
 import sys
 import json
 from io import BytesIO
 
 import pandas as pd
 import requests
-from storage_v2 import open_write, read
+from pipeline_sdk import env
+from pipeline_sdk.storage import open_write, read
 
 
 def log(msg):
@@ -37,6 +37,19 @@ def log(msg):
 
 def log_error(msg):
     print(f"[CORRELATION ERROR] {msg}", file=sys.stderr, flush=True)
+
+
+def read_parquet(s3_path):
+    log(f"Reading {s3_path}")
+    return pd.read_parquet(BytesIO(read(s3_path)))
+
+
+def write_parquet(df, s3_path):
+    log(f"Writing {len(df)} rows to {s3_path}")
+    buf = BytesIO()
+    df.to_parquet(buf, index=False, engine="pyarrow")
+    with open_write(s3_path, content_type="application/vnd.apache.parquet") as out:
+        out.write(buf.getvalue())
 
 
 def label_strength(val):
@@ -59,7 +72,7 @@ def label_direction(val):
 
 
 def main():
-    ctx       = json.loads(os.environ["NODE_CONTEXT"])
+    ctx       = json.loads(env.node_context_raw())
     config    = ctx["config"]
     inputs    = ctx["inputs"]
     output    = ctx["output"]
