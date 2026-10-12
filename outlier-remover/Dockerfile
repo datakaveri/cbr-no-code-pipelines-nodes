@@ -10,6 +10,6 @@ RUN pip install --no-cache-dir \
 
 WORKDIR /app
 COPY transform.py ./
-COPY pipeline_sdk/ ./pipeline_sdk/
+RUN pip install --no-cache-dir cbr-pipeline-sdk==2.2.0
 
 CMD ["python", "transform.py"]

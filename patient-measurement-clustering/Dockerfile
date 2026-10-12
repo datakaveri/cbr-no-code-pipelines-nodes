@@ -6,7 +6,7 @@ WORKDIR /app
 
 COPY --from=uv /uv /usr/local/bin/uv
 COPY requirements.txt clustering.py ./
-COPY pipeline_sdk/ ./pipeline_sdk/
+RUN pip install --no-cache-dir cbr-pipeline-sdk==2.2.0
 
 RUN uv pip install --system --no-cache -r requirements.txt
 

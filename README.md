@@ -2,36 +2,29 @@
 
 Custom pipeline nodes for the CBR data platform.
 
-## Shared SDK (`pipeline_sdk/`)
+## Shared SDK (`cbr-pipeline-sdk`)
 
-Every Python node uses the same SDK, `pipeline_sdk/`, instead of its own copy of a storage
-helper. Layering, one direction only:
+Every Python node uses the same SDK, published on PyPI as **`cbr-pipeline-sdk`**
+(import name `pipeline_sdk`). Each node's Dockerfile installs a pinned version:
 
+```dockerfile
+RUN pip install --no-cache-dir cbr-pipeline-sdk==2.2.0
 ```
-util  ->  env  ->  storage  ->  context        (boto3_compat sits on env + storage)
-```
+
+To pick up an SDK fix, bump that version in the Dockerfiles and rebuild the image.
+Nothing is copied between node folders any more.
+
+The modules, each importing only the ones above it:
 
 | Module | Use it for |
 |--------|------------|
+| `util` | Shared HTTP helper with retries (used by `env` and `storage`) |
 | `env` | The only module that reads platform environment variables: `env.node_context_raw()`, `env.api_key()`, `env.artifact_bucket()` / `env.require_artifact_bucket()`, `env.get_secret("NAME")` |
 | `storage` | Reads and writes by path through the backend (`read`, `read_to_file`, `open_write`, `write_bytes`, `upload_file`) |
 | `boto3_compat` | A boto3-shaped client for older node code (`from pipeline_sdk import boto3_compat as boto3`); every call goes through `storage` |
-| `util` | Shared HTTP helper with retries (used by `env` and `storage`) |
 
 Node code does not read `NODE_CONTEXT`, `API_KEY` or the bucket variables from `os.environ`;
 it asks `env`. (`auth-check` is the exception: it exists to inspect the raw environment.)
-
-A node's Docker build context is its own folder, so each node folder holds a copy of the SDK.
-The master copy is `./pipeline_sdk`; never edit a node's copy by hand.
-
-```bash
-python3 scripts/sync_sdk.py           # copy the master into every node
-python3 scripts/sync_sdk.py --check   # fail if any copy differs from the master
-```
-
-To use the SDK in a node, add `COPY pipeline_sdk/ ./pipeline_sdk/` to its Dockerfile and run the
-sync script. The master is kept in step with `packages/pipeline-sdk-py` in
-`datakaveri/cbr-no-code-editor`; change it there first, then copy it here.
 
 ## Setup
 
