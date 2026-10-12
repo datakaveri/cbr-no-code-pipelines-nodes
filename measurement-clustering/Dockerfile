@@ -17,6 +17,6 @@ RUN pip install --no-cache-dir \
     numpy==2.2.4
 
 COPY transform.py ./
-RUN pip install --no-cache-dir cbr-pipeline-sdk==2.2.0
+RUN pip install --no-cache-dir "cbr-pipeline-sdk @ https://github.com/datakaveri/cbr-pipeline-sdk/releases/download/v2.2.0/cbr_pipeline_sdk-2.2.0-py3-none-any.whl"
 
 CMD ["python", "transform.py"]

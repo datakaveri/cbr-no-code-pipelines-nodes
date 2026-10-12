@@ -4,15 +4,16 @@ Custom pipeline nodes for the CBR data platform.
 
 ## Shared SDK (`cbr-pipeline-sdk`)
 
-Every Python node uses the same SDK, published on PyPI as **`cbr-pipeline-sdk`**
-(import name `pipeline_sdk`). Each node's Dockerfile installs a pinned version:
+Every Python node uses the same SDK, `cbr-pipeline-sdk` (import name `pipeline_sdk`), published as a
+file on the releases page of <https://github.com/datakaveri/cbr-pipeline-sdk>. Each node's Dockerfile
+installs one pinned version straight from that release link:
 
 ```dockerfile
-RUN pip install --no-cache-dir cbr-pipeline-sdk==2.2.0
+RUN pip install --no-cache-dir "cbr-pipeline-sdk @ https://github.com/datakaveri/cbr-pipeline-sdk/releases/download/v2.2.0/cbr_pipeline_sdk-2.2.0-py3-none-any.whl"
 ```
 
-To pick up an SDK fix, bump that version in the Dockerfiles and rebuild the image.
-Nothing is copied between node folders any more.
+To pick up an SDK fix, change the version in that link (it appears twice) in the Dockerfiles and
+rebuild the image. Nothing is copied between node folders.
 
 The modules, each importing only the ones above it:
 
