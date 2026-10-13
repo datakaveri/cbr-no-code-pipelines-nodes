@@ -18,10 +18,11 @@ import shutil
 import sys
 import tempfile
 
-import storage_boto3 as boto3
+from pipeline_sdk import boto3_compat as boto3
+from pipeline_sdk import env
 import pandas as pd
 import requests
-from storage_v2 import read_to_file
+from pipeline_sdk.storage import read_to_file
 
 NODE_PREFIX = "[TIMEPOINT ASSIGNMENT]"
 
@@ -47,18 +48,10 @@ def split_s3_uri(uri: str) -> tuple[str, str]:
 
 
 def _build_s3_client(prefix: str):
-    endpoint = os.environ[f"{prefix}_S3_ENDPOINT"]
-    use_ssl = os.environ.get(f"{prefix}_S3_USE_SSL", "false").lower() == "true"
-    if "://" not in endpoint:
-        endpoint = ("https://" if use_ssl else "http://") + endpoint
-    return boto3.client(
-        "s3",
-        endpoint_url=endpoint,
-        aws_access_key_id=os.environ[f"{prefix}_S3_ACCESS_KEY"],
-        aws_secret_access_key=os.environ[f"{prefix}_S3_SECRET_KEY"],
-        aws_session_token=os.environ.get(f"{prefix}_S3_SESSION_TOKEN") or None,
-        region_name=os.environ.get(f"{prefix}_S3_REGION", "us-east-1"),
-    )
+    """The storage adapter client (pipeline_sdk.boto3_compat): reads and writes
+    go through the backend, so no endpoint or credential is needed here. The
+    parameters are kept so call sites don't change."""
+    return boto3.client("s3")
 
 
 _S3_CLIENTS: dict = {}
@@ -66,7 +59,7 @@ _S3_CLIENTS: dict = {}
 
 def get_s3_client_for_path(s3_path: str):
     bucket, _ = split_s3_uri(s3_path)
-    prefix = "ARTIFACT" if bucket == os.environ.get("ARTIFACT_S3_BUCKET") else "INPUT"
+    prefix = "ARTIFACT" if bucket == env.artifact_bucket() else "INPUT"
     if prefix not in _S3_CLIENTS:
         _S3_CLIENTS[prefix] = _build_s3_client(prefix)
     return _S3_CLIENTS[prefix]
@@ -447,7 +440,7 @@ def process(df: pd.DataFrame, config: dict) -> tuple[pd.DataFrame, pd.DataFrame]
 
 
 def main() -> None:
-    ctx = json.loads(os.environ["NODE_CONTEXT"])
+    ctx = json.loads(env.node_context_raw())
     node_name = ctx["node"]["name"]
     config = ctx.get("config", {})
     inputs = ctx.get("inputs", [])
@@ -464,7 +457,7 @@ def main() -> None:
         source = source_entry["path"]
         _, key = split_s3_uri(source)
         local_path = os.path.join(workdir, os.path.basename(key))
-        # Always re-resolve at read time via storage_v2 (POST /api/node/storage/
+        # Always re-resolve at read time via pipeline_sdk.storage (POST /api/node/storage/
         # download-url) instead of trusting output.presignedUrl: that field is
         # signed at workflow-submit time, before an upstream node in this same
         # run has written anything, so for same-run inputs it points at a key

@@ -26,7 +26,8 @@ import shutil
 import sys
 import tempfile
 
-import storage_boto3 as boto3
+from pipeline_sdk import boto3_compat as boto3
+from pipeline_sdk import env
 import requests
 from botocore.exceptions import BotoCoreError, ClientError
 from vedo import load, merge, write
@@ -41,9 +42,7 @@ def log_err(msg: str) -> None:
 
 
 def parse_node_context() -> dict:
-    raw = os.environ.get("NODE_CONTEXT", "")
-    if not raw:
-        raise ValueError("NODE_CONTEXT is required")
+    raw = env.node_context_raw()
     try:
         return json.loads(raw)
     except json.JSONDecodeError as e:
@@ -51,20 +50,10 @@ def parse_node_context() -> dict:
 
 
 def make_s3_client(prefix: str):
-    """Build a boto3 S3 client from {prefix}_S3_* env vars (INPUT or ARTIFACT)."""
-    endpoint = os.environ[f"{prefix}_S3_ENDPOINT"]
-    use_ssl = os.environ.get(f"{prefix}_S3_USE_SSL", "false").lower() == "true"
-    if not endpoint.startswith("http://") and not endpoint.startswith("https://"):
-        scheme = "https" if use_ssl else "http"
-        endpoint = f"{scheme}://{endpoint}"
-    return boto3.client(
-        "s3",
-        endpoint_url=endpoint,
-        aws_access_key_id=os.environ[f"{prefix}_S3_ACCESS_KEY"],
-        aws_secret_access_key=os.environ[f"{prefix}_S3_SECRET_KEY"],
-        aws_session_token=os.environ.get(f"{prefix}_S3_SESSION_TOKEN") or None,
-        region_name=os.environ.get(f"{prefix}_S3_REGION", "us-east-1"),
-    )
+    """The storage adapter client (pipeline_sdk.boto3_compat): reads and writes
+    go through the backend, so no endpoint or credential is needed here. The
+    parameters are kept so call sites don't change."""
+    return boto3.client("s3")
 
 
 def parse_s3_uri(uri: str) -> tuple[str, str]:
@@ -102,7 +91,7 @@ def main() -> None:
     # artifact bucket. Pick the client per path by the bucket in its s3:// URI.
     input_client = make_s3_client("INPUT")
     artifact_client = make_s3_client("ARTIFACT")
-    artifact_bucket = os.environ["ARTIFACT_S3_BUCKET"]
+    artifact_bucket = env.require_artifact_bucket()
 
     def client_for(uri: str):
         b, _ = parse_s3_uri(uri)

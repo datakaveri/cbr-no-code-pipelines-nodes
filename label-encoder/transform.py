@@ -17,7 +17,6 @@ needed. Falls back to boto3 + the INPUT_S3_*/ARTIFACT_S3_* credential env
 vars when an entry has no presignedUrl (dual mode during the rollout).
 """
 
-import os
 import sys
 import json
 from io import BytesIO
@@ -25,6 +24,8 @@ from io import BytesIO
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 import requests
+from pipeline_sdk import env
+from pipeline_sdk.storage import open_write, read
 
 
 def log(msg):
@@ -49,7 +50,7 @@ def write_parquet(df, s3_path):
 
 def main():
     # ── Parse context ───────────────────────────────────────────────
-    ctx = json.loads(os.environ["NODE_CONTEXT"])
+    ctx = json.loads(env.node_context_raw())
     config  = ctx["config"]
     inputs  = ctx["inputs"]
     output  = ctx["output"]

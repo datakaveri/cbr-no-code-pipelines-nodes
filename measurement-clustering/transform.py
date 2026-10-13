@@ -7,19 +7,19 @@ measurement_source_value, value_as_number) so each patient becomes one row,
 runs KMeans clustering on the resulting feature matrix, and writes a
 per-patient summary table with PCA coordinates, a human-readable severity
 cluster label, and clinical summary scores (HAM-D, PSQI, CDR). All storage
-reads/writes go through storage_v2 (presigned URLs via the backend's
+reads/writes go through pipeline_sdk.storage (presigned URLs via the backend's
 API-key-authenticated API); DuckDB itself only ever touches the local temp
-file storage_v2 downloads to, never S3 directly.
+file pipeline_sdk.storage downloads to, never S3 directly.
 Writes output to the exact path the platform assigns in output.files[0].path.
 """
 
-import os
 import sys
 import json
 import tempfile
 import duckdb
 import requests
-from storage_v2 import open_write, read_to_file
+from pipeline_sdk import env
+from pipeline_sdk.storage import open_write, read_to_file
 import pandas as pd
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
@@ -95,7 +95,7 @@ def run_clustering(df: pd.DataFrame, n_clusters: int) -> pd.DataFrame:
 
 
 def main():
-    ctx        = json.loads(os.environ["NODE_CONTEXT"])
+    ctx        = json.loads(env.node_context_raw())
     node       = ctx["node"]
     inputs     = ctx["inputs"]
     output     = ctx["output"]

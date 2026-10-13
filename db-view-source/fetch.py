@@ -22,9 +22,9 @@ import os
 import sys
 import tempfile
 
-import storage_boto3 as boto3
+from pipeline_sdk import boto3_compat as boto3
+from pipeline_sdk import env
 import requests
-from botocore.client import Config
 from cbr_data_access import DataAccessClient
 from cbr_data_access.exceptions import DataAccessError
 
@@ -38,9 +38,7 @@ def log_error(msg):
 
 
 def parse_context():
-    raw = os.environ.get("NODE_CONTEXT", "")
-    if not raw:
-        raise ValueError("NODE_CONTEXT is required")
+    raw = env.node_context_raw()
     return json.loads(raw)
 
 
@@ -69,19 +67,8 @@ def main():
     if os.environ.get("CBR_BASE_URL"):
         sdk_kwargs["base_url"] = os.environ["CBR_BASE_URL"]
 
-    s3 = boto3.client(
-        "s3",
-        endpoint_url="{}://{}".format(
-            "https" if os.environ.get("ARTIFACT_S3_USE_SSL", "false").lower() == "true" else "http",
-            os.environ["ARTIFACT_S3_ENDPOINT"],
-        ),
-        aws_access_key_id=os.environ["ARTIFACT_S3_ACCESS_KEY"],
-        aws_secret_access_key=os.environ["ARTIFACT_S3_SECRET_KEY"],
-        aws_session_token=os.environ.get("ARTIFACT_S3_SESSION_TOKEN") or None,
-        region_name=os.environ.get("ARTIFACT_S3_REGION", "us-east-1"),
-        config=Config(signature_version="s3v4"),
-    )
-    bucket = os.environ["ARTIFACT_S3_BUCKET"]
+    s3 = boto3.client("s3")
+    bucket = env.require_artifact_bucket()
 
     try:
         with DataAccessClient(username=username, password=password, **sdk_kwargs) as client:

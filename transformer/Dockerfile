@@ -10,6 +10,7 @@ RUN pip install --no-cache-dir duckdb requests==2.32.3
 RUN python -c "import duckdb; conn = duckdb.connect(); conn.install_extension('httpfs'); conn.close()"
 
 # Copy script
-COPY transform.py  storage_v2.py ./
+COPY transform.py ./
+RUN pip install --no-cache-dir "cbr-pipeline-sdk @ https://github.com/datakaveri/cbr-pipeline-sdk/releases/download/v2.2.0/cbr_pipeline_sdk-2.2.0-py3-none-any.whl"
 
 CMD ["python", "transform.py"]

@@ -13,11 +13,11 @@ Writes to the exact paths the platform assigns in output.files[*].path.
 """
 
 import json
-import os
 import sys
 from urllib.parse import urlparse
 
-import storage_boto3 as boto3
+from pipeline_sdk import boto3_compat as boto3
+from pipeline_sdk import env
 import requests
 
 
@@ -30,9 +30,7 @@ def log_error(message: str) -> None:
 
 
 def parse_node_context() -> dict:
-    ctx_str = os.environ.get("NODE_CONTEXT", "")
-    if not ctx_str:
-        raise ValueError("NODE_CONTEXT environment variable is required")
+    ctx_str = env.node_context_raw()
 
     try:
         return json.loads(ctx_str)
@@ -50,23 +48,9 @@ def validate_context(ctx: dict) -> None:
 
 
 def create_s3_client():
-    use_ssl = os.environ.get("ARTIFACT_S3_USE_SSL", "false").lower() == "true"
-    endpoint = os.environ["ARTIFACT_S3_ENDPOINT"]
-    endpoint_url = f"{'https' if use_ssl else 'http'}://{endpoint}"
-
-    client_kwargs = {
-        "service_name": "s3",
-        "endpoint_url": endpoint_url,
-        "aws_access_key_id": os.environ["ARTIFACT_S3_ACCESS_KEY"],
-        "aws_secret_access_key": os.environ["ARTIFACT_S3_SECRET_KEY"],
-        "region_name": os.environ.get("ARTIFACT_S3_REGION", "us-east-1"),
-    }
-
-    session_token = os.environ.get("ARTIFACT_S3_SESSION_TOKEN", "")
-    if session_token:
-        client_kwargs["aws_session_token"] = session_token
-
-    return boto3.client(**client_kwargs)
+    """The storage adapter client (pipeline_sdk.boto3_compat): reads and writes
+    go through the backend, so no endpoint or credential is needed here."""
+    return boto3.client("s3")
 
 
 def parse_s3_uri(uri: str) -> tuple[str, str]:

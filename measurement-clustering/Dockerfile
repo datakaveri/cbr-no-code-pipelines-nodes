@@ -16,6 +16,7 @@ RUN pip install --no-cache-dir \
     scikit-learn==1.6.1 \
     numpy==2.2.4
 
-COPY transform.py  storage_v2.py ./
+COPY transform.py ./
+RUN pip install --no-cache-dir "cbr-pipeline-sdk @ https://github.com/datakaveri/cbr-pipeline-sdk/releases/download/v2.2.0/cbr_pipeline_sdk-2.2.0-py3-none-any.whl"
 
 CMD ["python", "transform.py"]

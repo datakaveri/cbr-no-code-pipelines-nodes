@@ -4,8 +4,8 @@ SQL Transformer - Custom Node Container
 
 Executes SQL transformations using DuckDB and exports results to S3.
 Follows the new NodeContext contract - receives a single NODE_CONTEXT JSON.
-All storage reads/writes go through storage_v2 (presigned URLs via the
-backend's API-key-authenticated API) — see storage_v2.py for its required
+All storage reads/writes go through pipeline_sdk.storage (presigned URLs via the
+backend's API-key-authenticated API) — see pipeline_sdk/env.py for its required
 env vars (BACKEND_URL, API_KEY, NODE_CONTEXT).
 
 Environment Variables:
@@ -25,13 +25,13 @@ Environment Variables:
                        }
 """
 
-import os
 import sys
 import json
 import tempfile
 import duckdb
 import requests
-from storage_v2 import open_write, read_to_file
+from pipeline_sdk import env
+from pipeline_sdk.storage import open_write, read_to_file
 
 
 def log(message: str):
@@ -49,9 +49,7 @@ def sanitize_table_name(name: str) -> str:
 
 def parse_node_context() -> dict:
     """Parse NODE_CONTEXT from environment."""
-    ctx_str = os.environ.get("NODE_CONTEXT", "")
-    if not ctx_str:
-        raise ValueError("NODE_CONTEXT environment variable is required")
+    ctx_str = env.node_context_raw()
 
     try:
         return json.loads(ctx_str)

@@ -13,7 +13,6 @@ Reads two S3 credential sets (same contract as the transformer node):
 Writes output to the exact path the platform assigns in output.files[0].path.
 """
 
-import os
 import sys
 import json
 from io import BytesIO
@@ -22,9 +21,9 @@ import numpy as np
 import pandas as pd
 import requests
 from sklearn.ensemble import IsolationForest
-import storage_boto3 as boto3
-from storage_v2 import read as storage_read
-from botocore.config import Config
+from pipeline_sdk import boto3_compat as boto3
+from pipeline_sdk import env
+from pipeline_sdk.storage import read as storage_read
 
 
 def log(msg):
@@ -36,18 +35,10 @@ def log_error(msg):
 
 
 def make_s3_client(prefix: str):
-    """Build a boto3 S3 client from {prefix}_S3_* env vars (INPUT or ARTIFACT)."""
-    use_ssl = os.environ.get(f"{prefix}_S3_USE_SSL", "false").lower() == "true"
-    scheme = "https" if use_ssl else "http"
-    return boto3.client(
-        "s3",
-        endpoint_url=f"{scheme}://{os.environ[f'{prefix}_S3_ENDPOINT']}",
-        aws_access_key_id=os.environ[f"{prefix}_S3_ACCESS_KEY"],
-        aws_secret_access_key=os.environ[f"{prefix}_S3_SECRET_KEY"],
-        aws_session_token=os.environ.get(f"{prefix}_S3_SESSION_TOKEN") or None,
-        region_name=os.environ.get(f"{prefix}_S3_REGION", "us-east-1"),
-        config=Config(signature_version="s3v4"),
-    )
+    """The storage adapter client (pipeline_sdk.boto3_compat): reads and writes
+    go through the backend, so no endpoint or credential is needed here. The
+    parameters are kept so call sites don't change."""
+    return boto3.client("s3")
 
 
 def s3_split(s3_path):
@@ -57,7 +48,7 @@ def s3_split(s3_path):
 
 
 def read_parquet(s3_path):
-    # Always re-resolve at read time via storage_v2 (POST /api/node/storage/
+    # Always re-resolve at read time via pipeline_sdk.storage (POST /api/node/storage/
     # download-url) instead of trusting a presignedUrl handed in NODE_CONTEXT:
     # that field is signed at workflow-submit time, before an upstream node in
     # this same run has written anything, so for same-run inputs it points at
@@ -117,7 +108,7 @@ def remove_outliers_isolation_forest(df, cols, contamination):
 
 
 def main():
-    ctx        = json.loads(os.environ["NODE_CONTEXT"])
+    ctx        = json.loads(env.node_context_raw())
     config     = ctx["config"]
     inputs     = ctx["inputs"]
     output     = ctx["output"]
