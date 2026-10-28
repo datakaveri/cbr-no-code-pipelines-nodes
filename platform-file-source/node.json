@@ -3,7 +3,7 @@
   "nodeType": "processing",
   "name": "Platform File Source",
   "shortDescription": "Download a file from a platform dataset (databank) and load it into the pipeline as Parquet",
-  "description": "Logs in to the platform with your own account (username and password stored as secrets in Settings, Secrets), downloads a file from a platform dataset's databank through the file server, and writes it as a Parquet file for the next nodes. Supports CSV, JSON, GeoJSON, GeoPackage and Parquet files (shapes become a geometry column of GeoJSON text). Give the dataset (databank) ID, and the file's path inside it when the databank holds more than one file. Turn on 'Load all matching files' to stack many files into one table.",
+  "description": "Logs in to the platform with your own account (username and password stored as secrets in Settings, Secrets), downloads a file from a platform dataset's databank through the file server, and writes it as a Parquet file for the next nodes. Supports CSV, JSON, GeoJSON, GeoPackage and Parquet files (shapes become a geometry column of GeoJSON text). Give the dataset (databank) ID, and the file's path inside it when the databank holds more than one file. Use a * pattern or a folder in the file path to stack many files into one table.",
   "lucideIcon": "CloudDownload",
   "color": "#0ea5e9",
   "hasInput": false,
@@ -31,7 +31,7 @@
     "file_key": {
       "type": "string",
       "label": "File path in the dataset",
-      "description": "Which file to download, for example data/people.csv. Leave empty if the dataset has exactly one file. With 'Load all matching files' on, this can be a pattern such as 2026-09-*.parquet, or a folder ending in /.",
+      "description": "Which file to download, for example data/people.csv. Leave empty if the dataset has exactly one file. To load several files into one table, use a pattern such as 2026-09-*.parquet, a folder ending in / (data/), or just * for every file.",
       "required": false,
       "unique": false,
       "placeholder": "e.g. data/people.csv"
@@ -39,7 +39,7 @@
     "all_files": {
       "type": "boolean",
       "label": "Load all matching files",
-      "description": "Turn on to load every file that matches the file path pattern (or every file, if the pattern is empty) and stack them into one table with an extra _source_file column.",
+      "description": "Optional. Using a * pattern or a folder in the file path already loads several files; this switch does the same and, when the file path is empty, loads every file. Several files are stacked into one table with an extra _source_file column.",
       "required": false,
       "unique": false,
       "default": false
@@ -47,7 +47,7 @@
     "max_files": {
       "type": "number",
       "label": "Most files to load",
-      "description": "Safety limit used with 'Load all matching files'. The node stops with a message if more files match.",
+      "description": "Safety limit when several files are loaded. The node stops with a message if more files match.",
       "required": false,
       "unique": false,
       "default": 500,

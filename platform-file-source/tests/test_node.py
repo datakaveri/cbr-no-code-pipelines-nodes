@@ -312,10 +312,25 @@ class NodeTests(unittest.TestCase):
             self.run_node(all_files=True, file_key="zzz*")
         self.assertIn("people.csv", str(caught.exception))
 
-    def test_a_pattern_without_the_switch_explains_itself(self):
-        with self.assertRaises(main.PlatformError) as caught:
-            self.run_node(file_key="*.csv")
-        self.assertIn("Load all matching files", str(caught.exception))
+    def test_a_star_pattern_loads_several_files_without_the_switch(self):
+        STATE.files = {"d/a1.csv": CSV, "d/a2.csv": CSV, "d/x.jsonl": JSONL}
+        result, _ = self.run_node(file_key="d/a*.csv")
+        self.assertEqual(result["rows"], 6)
+
+    def test_a_single_star_means_every_file(self):
+        STATE.files = {"a.csv": CSV, "b.csv": CSV}
+        result, _ = self.run_node(file_key="*")
+        self.assertEqual(result["rows"], 6)
+
+    def test_a_folder_loads_its_files_without_the_switch(self):
+        STATE.files = {"in/a.csv": CSV, "out/b.csv": CSV}
+        result, _ = self.run_node(file_key="in/")
+        self.assertEqual(result["rows"], 3)
+
+    def test_the_switch_value_may_arrive_as_text(self):
+        STATE.files = {"a.csv": CSV, "b.csv": CSV}
+        result, _ = self.run_node(all_files="true")
+        self.assertEqual(result["rows"], 6)
 
     def test_a_bad_file_among_many_is_named(self):
         STATE.files = {"a.csv": CSV, "b.gpkg": b"not a geopackage"}

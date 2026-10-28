@@ -19,8 +19,8 @@ a row and its shape goes into a `geometry` column as GeoJSON text in WGS84 (long
 coordinate system is converted. A GeoPackage with several layers needs the **Layer name** field. Other types give a clear
 "not supported yet" error. Files larger than 2 GB are refused (500 MB for one GeoJSON file).
 
-**Many files:** turn on **Load all matching files**. The file path then works as a pattern (`2026-09-*.parquet`, `data/*.csv`)
-or a folder (`data/`); empty means every file. The files are stacked into one table (columns matched by name) with an extra
+**Many files:** put a pattern (`2026-09-*.parquet`, `data/*.csv`), a folder (`data/`) or `*` (every file) in the file path.
+(The **Load all matching files** switch does the same and, with an empty path, loads every file.) The files are stacked into one table (columns matched by name) with an extra
 `_source_file` column. **Most files to load** (default 500) stops runaway selections.
 
 ## What it does

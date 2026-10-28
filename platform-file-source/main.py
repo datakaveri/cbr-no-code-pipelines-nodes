@@ -28,7 +28,7 @@ import duckdb
 from pipeline_sdk import context, env
 from pipeline_sdk.context import log
 
-NODE_VERSION = "2026-10-28.2"
+NODE_VERSION = "2026-10-28.3"
 
 DEFAULT_TOKEN_URL = "https://platform.iudx.io/auth/realms/iudx/protocol/openid-connect/token"
 DEFAULT_FILE_SERVER = "https://platform.iudx.io/files-connect-api/v1"
@@ -422,7 +422,9 @@ def handler(ctx: context.NodeContext, workdir: str):
     layer = _text(ctx.config, "layer") or None
     result_path = os.path.join(workdir, "result.parquet")
 
-    if _flag(ctx.config, "all_files"):
+    # A pattern ("*", "2026-09-*.parquet") or a folder ("data/") means several files, with or without the switch.
+    several = _flag(ctx.config, "all_files") or any(mark in pattern for mark in "*?") or pattern.endswith("/")
+    if several:
         chosen = select_files(files, pattern)
         if not chosen:
             names = ", ".join(item["key"] for item in files[:10]) or "none"
@@ -457,8 +459,6 @@ def handler(ctx: context.NodeContext, workdir: str):
         log(f"Combined {len(parts)} file(s) into one table: {rows} row(s)")
         label = f"{len(parts)} files"
     else:
-        if any(mark in pattern for mark in "*?"):
-            raise PlatformError("The file path has a * or ? in it. Turn on 'Load all matching files' to use a pattern.")
         chosen = choose_file(files, pattern)
         key = chosen["key"]
         log(f"Downloading '{key}' ({chosen.get('size', '?')} bytes)")
