@@ -20,7 +20,7 @@ coordinate system is converted. A GeoPackage with several layers needs the **Lay
 "not supported yet" error. Files larger than 2 GB are refused (500 MB for one GeoJSON file).
 
 **Many files:** put a pattern (`2026-09-*.parquet`, `data/*.csv`), a folder (`data/`) or `*` (every file) in the file path.
-(The **Load all matching files** switch does the same and, with an empty path, loads every file.) The files are stacked into one table (columns matched by name) with an extra
+The files are stacked into one table (columns matched by name) with an extra
 `_source_file` column. **Most files to load** (default 500) stops runaway selections.
 
 ## What it does
@@ -42,9 +42,8 @@ The password and token are never logged or written to the output.
 |---|---|---|
 | `name` | yes | Node name (snake_case) |
 | `databank_id` | yes | Dataset id |
-| `file_key` | no | File path inside the dataset (a pattern or folder when `all_files` is on) |
-| `all_files` | no | Load every matching file into one table |
-| `max_files` | no | Safety limit for `all_files` (default 500) |
+| `file_key` | no | File path inside the dataset, or a pattern / folder / `*` to load several files |
+| `max_files` | no | Most files a pattern may load (default 500) |
 | `layer` | no | GeoPackage layer name, needed when the file has several |
 | `username_secret` / `password_secret` | no | Names of the secrets (defaults above) |
 | `file_server_url` / `token_url` | no | Override the platform addresses (for other deployments) |

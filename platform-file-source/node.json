@@ -31,18 +31,10 @@
     "file_key": {
       "type": "string",
       "label": "File path in the dataset",
-      "description": "Which file to download, for example data/people.csv. Leave empty if the dataset has exactly one file. To load several files into one table, use a pattern such as 2026-09-*.parquet, a folder ending in / (data/), or just * for every file.",
+      "description": "Which file to download, for example data/people.csv. Leave empty if the dataset has exactly one file. To load several files into one table, use a pattern such as 2026-09-*.parquet, a folder ending in / (data/), or just * for every file. Several files are stacked into one table with an extra _source_file column.",
       "required": false,
       "unique": false,
       "placeholder": "e.g. data/people.csv"
-    },
-    "all_files": {
-      "type": "boolean",
-      "label": "Load all matching files",
-      "description": "Optional. Using a * pattern or a folder in the file path already loads several files; this switch does the same and, when the file path is empty, loads every file. Several files are stacked into one table with an extra _source_file column.",
-      "required": false,
-      "unique": false,
-      "default": false
     },
     "max_files": {
       "type": "number",

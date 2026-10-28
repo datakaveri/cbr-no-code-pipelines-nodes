@@ -264,7 +264,7 @@ class NodeTests(unittest.TestCase):
 
     def test_all_matching_files_are_stacked_with_their_source(self):
         STATE.files = {"d/a1.csv": CSV, "d/a2.csv": CSV, "d/other.jsonl": JSONL}
-        result, output = self.run_node(all_files=True, file_key="d/a*.csv")
+        result, output = self.run_node(file_key="d/a*.csv")
         rows, columns = self.table(output)
         self.assertEqual(result["rows"], 6)
         self.assertEqual(columns[-1], "_source_file")
@@ -279,37 +279,37 @@ class NodeTests(unittest.TestCase):
                 files[f"part{index}.parquet"] = handle.read()
             os.unlink(tmp.name)
         STATE.files = files
-        result, output = self.run_node(all_files=True)
+        result, output = self.run_node(file_key="*")
         rows, columns = self.table(output)
         self.assertEqual([row[0] for row in rows], [0, 1, 2])
         self.assertEqual(columns, ["n", "tag", "_source_file"])
 
     def test_a_folder_prefix_picks_the_files_in_it(self):
         STATE.files = {"in/a.csv": CSV, "out/b.csv": CSV}
-        result, _ = self.run_node(all_files=True, file_key="in/")
+        result, _ = self.run_node(file_key="in/")
         self.assertEqual(result["rows"], 3)
 
-    def test_all_files_with_no_pattern_takes_everything_and_mixed_types_work(self):
+    def test_a_single_star_takes_everything_and_mixed_types_work(self):
         STATE.files = {"a.csv": CSV, "b.jsonl": JSONL}
-        result, output = self.run_node(all_files=True)
+        result, output = self.run_node(file_key="*")
         rows, columns = self.table(output)
         self.assertEqual(result["rows"], 5)
         self.assertEqual(set(columns), {"id", "name", "age", "city", "_source_file"})
 
     def test_many_files_are_loaded(self):
         STATE.files = {f"p{index:03}.csv": CSV for index in range(120)}
-        result, _ = self.run_node(all_files=True)
+        result, _ = self.run_node(file_key="*")
         self.assertEqual(result["rows"], 360)
 
     def test_too_many_matching_files_stops_with_a_message(self):
         STATE.files = {f"p{index}.csv": CSV for index in range(5)}
         with self.assertRaises(main.PlatformError) as caught:
-            self.run_node(all_files=True, max_files=3)
+            self.run_node(file_key="*", max_files=3)
         self.assertIn("more than the limit of 3", str(caught.exception))
 
     def test_a_pattern_that_matches_nothing_lists_the_files(self):
         with self.assertRaises(main.PlatformError) as caught:
-            self.run_node(all_files=True, file_key="zzz*")
+            self.run_node(file_key="zzz*")
         self.assertIn("people.csv", str(caught.exception))
 
     def test_a_star_pattern_loads_several_files_without_the_switch(self):
@@ -327,15 +327,10 @@ class NodeTests(unittest.TestCase):
         result, _ = self.run_node(file_key="in/")
         self.assertEqual(result["rows"], 3)
 
-    def test_the_switch_value_may_arrive_as_text(self):
-        STATE.files = {"a.csv": CSV, "b.csv": CSV}
-        result, _ = self.run_node(all_files="true")
-        self.assertEqual(result["rows"], 6)
-
     def test_a_bad_file_among_many_is_named(self):
         STATE.files = {"a.csv": CSV, "b.gpkg": b"not a geopackage"}
         with self.assertRaises(main.PlatformError) as caught:
-            self.run_node(all_files=True)
+            self.run_node(file_key="*")
         self.assertIn("'b.gpkg'", str(caught.exception))
 
     # -- GeoPackage ----------------------------------------------------------------

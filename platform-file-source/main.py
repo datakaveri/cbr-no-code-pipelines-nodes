@@ -28,7 +28,7 @@ import duckdb
 from pipeline_sdk import context, env
 from pipeline_sdk.context import log
 
-NODE_VERSION = "2026-10-28.3"
+NODE_VERSION = "2026-10-28.4"
 
 DEFAULT_TOKEN_URL = "https://platform.iudx.io/auth/realms/iudx/protocol/openid-connect/token"
 DEFAULT_FILE_SERVER = "https://platform.iudx.io/files-connect-api/v1"
@@ -155,7 +155,7 @@ def choose_file(files, wanted_key):
         names = ", ".join(item["key"] for item in files[:10])
         more = f" (and {len(files) - 10} more)" if len(files) > 10 else ""
         raise PlatformError(
-            f"The dataset has {len(files)} files, so say which one to take in 'File path in the dataset'. "
+            f"The dataset has {len(files)} files, so say which one to take in 'File path in the dataset' (or use * to load all of them). "
             f"Files found: {names}{more}"
         )
     return files[0]
@@ -330,11 +330,6 @@ def combine_parquet(parts, destination):
         connection.close()
 
 
-def _flag(config, name):
-    value = config.get(name)
-    return value is True or str(value).strip().lower() in ("true", "1", "yes", "on")
-
-
 def _number(config, name, default):
     try:
         return int(float(config.get(name)))
@@ -422,8 +417,8 @@ def handler(ctx: context.NodeContext, workdir: str):
     layer = _text(ctx.config, "layer") or None
     result_path = os.path.join(workdir, "result.parquet")
 
-    # A pattern ("*", "2026-09-*.parquet") or a folder ("data/") means several files, with or without the switch.
-    several = _flag(ctx.config, "all_files") or any(mark in pattern for mark in "*?") or pattern.endswith("/")
+    # A pattern ("*", "2026-09-*.parquet") or a folder ("data/") means several files.
+    several = any(mark in pattern for mark in "*?") or pattern.endswith("/")
     if several:
         chosen = select_files(files, pattern)
         if not chosen:
