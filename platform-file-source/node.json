@@ -1,0 +1,114 @@
+{
+  "version": "1.0",
+  "nodeType": "processing",
+  "name": "Platform File Source",
+  "shortDescription": "Download a file from a platform dataset (databank) and load it into the pipeline as Parquet",
+  "description": "Logs in to the platform with your own account (username and password stored as secrets in Settings, Secrets), downloads a file from a platform dataset's databank through the file server, and writes it as a Parquet file for the next nodes. Supports CSV, JSON, GeoJSON, GeoPackage and Parquet files (shapes become a geometry column of GeoJSON text). Give the dataset (databank) ID, and the file's path inside it when the databank holds more than one file. Use a * pattern or a folder in the file path to stack many files into one table.",
+  "lucideIcon": "CloudDownload",
+  "color": "#0ea5e9",
+  "hasInput": false,
+  "inputDescription": "",
+  "config": {
+    "name": {
+      "type": "string",
+      "label": "Name",
+      "description": "Unique identifier for this source node in the pipeline",
+      "required": true,
+      "unique": true,
+      "placeholder": "e.g. platform_file",
+      "validation": {
+        "patternKey": "snake_case"
+      }
+    },
+    "databank_id": {
+      "type": "string",
+      "label": "Dataset (databank) ID",
+      "description": "The ID of the platform dataset, as shown in its page address",
+      "required": true,
+      "unique": false,
+      "placeholder": "e.g. e75f8171-ebbc-4ad4-a644-0554424ca5cb"
+    },
+    "file_key": {
+      "type": "string",
+      "label": "File path in the dataset",
+      "description": "Which file to download, for example data/people.csv. Leave empty if the dataset has exactly one file. To load several files into one table, use a pattern such as 2026-09-*.parquet, a folder ending in / (data/), or just * for every file. Several files are stacked into one table with an extra _source_file column.",
+      "required": false,
+      "unique": false,
+      "placeholder": "e.g. data/people.csv"
+    },
+    "max_files": {
+      "type": "number",
+      "label": "Most files to load",
+      "description": "Safety limit when several files are loaded. The node stops with a message if more files match.",
+      "required": false,
+      "unique": false,
+      "default": 500,
+      "validation": {
+        "minimum": 1,
+        "maximum": 2000,
+        "integer": true
+      }
+    },
+    "layer": {
+      "type": "string",
+      "label": "Layer name (GeoPackage)",
+      "description": "Only for GeoPackage (.gpkg) files that hold more than one layer: which layer to load. The error message lists the layer names.",
+      "required": false,
+      "unique": false,
+      "placeholder": "e.g. roads"
+    },
+    "username_secret": {
+      "type": "string",
+      "label": "Username secret name",
+      "description": "Name of the secret that holds your platform username (email). Create it in Settings, Secrets.",
+      "required": false,
+      "unique": false,
+      "default": "PLATFORM_USERNAME",
+      "placeholder": "PLATFORM_USERNAME",
+      "validation": {
+        "patternKey": "identifier"
+      }
+    },
+    "password_secret": {
+      "type": "string",
+      "label": "Password secret name",
+      "description": "Name of the secret that holds your platform password. Create it in Settings, Secrets.",
+      "required": false,
+      "unique": false,
+      "default": "PLATFORM_PASSWORD",
+      "placeholder": "PLATFORM_PASSWORD",
+      "validation": {
+        "patternKey": "identifier"
+      }
+    },
+    "file_server_url": {
+      "type": "string",
+      "label": "File server address (advanced)",
+      "description": "Leave empty to use the platform's file server",
+      "required": false,
+      "unique": false,
+      "placeholder": "https://platform.iudx.io/files-connect-api/v1"
+    },
+    "token_url": {
+      "type": "string",
+      "label": "Login address (advanced)",
+      "description": "Leave empty to use the platform's login server",
+      "required": false,
+      "unique": false,
+      "placeholder": "https://platform.iudx.io/auth/realms/iudx/protocol/openid-connect/token"
+    }
+  },
+  "hasOutput": true,
+  "outputDescription": "The downloaded file as Parquet",
+  "outputFiles": [
+    {
+      "name": "result",
+      "format": "parquet",
+      "path": "{{artifacts}}/{{pipeline.name}}/{{execution.timestamp}}/{{node.name}}/result.parquet"
+    }
+  ],
+  "implementation": {
+    "type": "container",
+    "entrypoint": "python main.py"
+  }
+}

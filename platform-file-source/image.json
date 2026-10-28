@@ -1,0 +1,8 @@
+{
+  "name": "Platform File Source Image",
+  "description": "Logs in as you, downloads a file from a platform dataset through the file server and writes it as Parquet",
+  "githubUrl": "https://github.com/pradeep800/pipelines-nodes",
+  "githubRef": "main",
+  "dockerfilePath": "Dockerfile",
+  "dockerContext": "platform-file-source"
+}
