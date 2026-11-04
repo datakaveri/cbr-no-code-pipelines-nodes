@@ -1,8 +1,11 @@
 """Platform File Source (Storage v2).
 
 A source node (no upstream input). It logs in to the platform as the user,
-downloads ONE file from a dataset's databank through the platform's file
-server, and writes it as Parquet for the next nodes.
+downloads the file(s) it is asked for from a dataset's databank through the
+platform's file server and keeps the ORIGINAL files, unchanged, in one folder
+of the user's artifacts (the folder shows up in the File Browser). One of them
+(the only one, or the one named in "File for the next nodes") is also written
+as Parquet, which is what the next nodes read.
 
 Flow (the same calls the platform's own website makes):
   1. username / password come from the user's stored secrets (env.get_secret);
@@ -10,7 +13,8 @@ Flow (the same calls the platform's own website makes):
   3. POST <files>/v1/databanks/{id}/files          -> list the databank's files;
   4. POST <files>/v1/databanks/{id}/files/download -> temporary download link;
   5. GET  <that link>                              -> the file's bytes;
-  6. convert CSV / JSON to Parquet (Parquet is kept as it is) and upload.
+  6. upload each original to <node folder>/files/<its path in the dataset>;
+  7. convert the chosen file (CSV / JSON / ...) to Parquet and upload it as the node's output.
 
 The password and the token are never logged. The password and username are
 also registered for log masking by the SDK when fetched.
@@ -18,6 +22,7 @@ also registered for log masking by the SDK when fetched.
 
 import fnmatch
 import json
+import mimetypes
 import os
 import shutil
 import urllib.error
@@ -25,10 +30,10 @@ import urllib.parse
 import urllib.request
 
 import duckdb
-from pipeline_sdk import context, env
+from pipeline_sdk import context, env, storage
 from pipeline_sdk.context import log
 
-NODE_VERSION = "2026-10-28.4"
+NODE_VERSION = "2026-11-04.1"
 
 DEFAULT_TOKEN_URL = "https://platform.iudx.io/auth/realms/iudx/protocol/openid-connect/token"
 DEFAULT_FILE_SERVER = "https://platform.iudx.io/files-connect-api/v1"
@@ -37,7 +42,8 @@ CLIENT_ID = "angular-client"
 DEFAULT_USERNAME_SECRET = "PLATFORM_USERNAME"
 DEFAULT_PASSWORD_SECRET = "PLATFORM_PASSWORD"
 
-MAX_DOWNLOAD_BYTES = 2 * 1024 * 1024 * 1024  # refuse anything bigger than 2 GiB
+MAX_DOWNLOAD_BYTES = 2 * 1024 * 1024 * 1024  # refuse anything bigger than 2 GiB (all files together)
+ORIGINALS_FOLDER = "files"  # inside the node's output folder
 LIST_LIMIT = 1000
 SUPPORTED_EXTENSIONS = (".csv", ".json", ".jsonl", ".ndjson", ".geojson", ".gpkg", ".parquet")
 DEFAULT_MAX_FILES = 500
@@ -155,7 +161,7 @@ def choose_file(files, wanted_key):
         names = ", ".join(item["key"] for item in files[:10])
         more = f" (and {len(files) - 10} more)" if len(files) > 10 else ""
         raise PlatformError(
-            f"The dataset has {len(files)} files, so say which one to take in 'File path in the dataset' (or use * to load all of them). "
+            f"The dataset has {len(files)} files, so say which one to take in 'File path in the dataset' (or use * to download all of them). "
             f"Files found: {names}{more}"
         )
     return files[0]
@@ -286,22 +292,6 @@ def gpkg_to_parquet(connection, source, layer, destination):
         raise PlatformError(f"The GeoPackage layer could not be converted: {error}") from error
 
 
-def add_source_column(path, name):
-    """Add a `_source_file` column to a Parquet file, so rows from several files can be told apart."""
-    connection = duckdb.connect()
-    try:
-        temporary = path + ".tmp"
-        escaped_path, escaped_temporary = path.replace("'", "''"), temporary.replace("'", "''")
-        escaped_name = name.replace("'", "''")
-        connection.execute(
-            f"COPY (SELECT *, '{escaped_name}' AS _source_file FROM read_parquet('{escaped_path}')) "
-            f"TO '{escaped_temporary}' (FORMAT PARQUET)"
-        )
-    finally:
-        connection.close()
-    os.replace(temporary, path)
-
-
 def select_files(files, pattern):
     """The files a pattern matches: `*` and `?` work, a pattern ending in `/` means a folder, empty means all."""
     if not pattern:
@@ -312,22 +302,37 @@ def select_files(files, pattern):
     return [item for item in files if fnmatch.fnmatchcase(item["key"], wanted)]
 
 
-def combine_parquet(parts, destination):
-    """Stack many Parquet files into one; columns are matched by name; returns the row count."""
-    connection = duckdb.connect()
-    try:
-        listed = ", ".join("'" + part.replace("'", "''") + "'" for part in parts)
-        escaped_destination = destination.replace("'", "''")
-        try:
-            connection.execute(
-                f"COPY (SELECT * FROM read_parquet([{listed}], union_by_name=true)) "
-                f"TO '{escaped_destination}' (FORMAT PARQUET)"
-            )
-        except duckdb.Error as error:
-            raise PlatformError(f"The files could not be combined (their columns may not fit together): {error}") from error
-        return connection.execute(f"SELECT COUNT(*) FROM read_parquet('{escaped_destination}')").fetchone()[0]
-    finally:
-        connection.close()
+def pick_file_for_next_nodes(chosen, wanted):
+    """Which of the downloaded files the next nodes read: the only one, or the one named in the settings."""
+    wanted = (wanted or "").strip().lstrip("/")
+    if wanted:
+        exact = [item for item in chosen if item["key"] == wanted]
+        # A bare file name is enough when it is unambiguous among the downloaded files.
+        by_name = [item for item in chosen if item["key"].rsplit("/", 1)[-1] == wanted]
+        found = exact or (by_name if len(by_name) == 1 else [])
+        if found:
+            return found[0]
+        names = ", ".join(item["key"] for item in chosen[:10])
+        more = f" (and {len(chosen) - 10} more)" if len(chosen) > 10 else ""
+        raise PlatformError(f"'File for the next nodes' is '{wanted}', which is not one of the downloaded files. Files: {names}{more}")
+    if len(chosen) == 1:
+        return chosen[0]
+    names = ", ".join(item["key"] for item in chosen[:10])
+    more = f" (and {len(chosen) - 10} more)" if len(chosen) > 10 else ""
+    raise PlatformError(
+        f"{len(chosen)} files will be downloaded. Say which one the next nodes should use in 'File for the next nodes'. "
+        f"Files: {names}{more}"
+    )
+
+
+def safe_relative_path(key):
+    """A dataset file path made safe to use as a path inside our own folder (no leading slash, no '..')."""
+    parts = [part.strip() for part in key.replace("\\", "/").split("/")]
+    parts = [part for part in parts if part not in ("", ".")]
+    if not parts or ".." in parts:
+        raise PlatformError(f"The file name '{key}' cannot be stored.")
+    # The storage refuses two dots in a row anywhere in a path, so a name like "report..csv" is stored as "report_csv".
+    return "/".join(part.replace("..", "_") for part in parts)
 
 
 def _number(config, name, default):
@@ -428,49 +433,52 @@ def handler(ctx: context.NodeContext, workdir: str):
         if len(chosen) > limit:
             raise PlatformError(
                 f"{len(chosen)} files match, which is more than the limit of {limit}. "
-                "Narrow the file pattern, or raise 'Most files to load'."
+                "Narrow the file pattern, or raise 'Most files to download'."
             )
         chosen.sort(key=lambda item: item["key"])
-        log(f"Loading {len(chosen)} file(s)")
-        parts, size = [], 0
-        for index, item in enumerate(chosen, start=1):
-            key = item["key"]
-            extension = os.path.splitext(key)[1].lower()
-            raw_path = os.path.join(workdir, f"raw_{index}{extension}")
-            part_path = os.path.join(workdir, f"part_{index}.parquet")
-            size += download(server.download_link(databank_id, key), raw_path)
-            if size > MAX_DOWNLOAD_BYTES:
-                raise PlatformError("The files together are larger than 2 GB, which this node does not load.")
-            try:
-                to_parquet(raw_path, extension, part_path, layer)
-            except PlatformError as error:
-                raise PlatformError(f"'{key}': {error}") from error
-            os.remove(raw_path)
-            add_source_column(part_path, key)
-            parts.append(part_path)
-            if index % 25 == 0 or index == len(chosen):
-                log(f"Downloaded and converted {index} of {len(chosen)} files")
-        rows = combine_parquet(parts, result_path)
-        log(f"Combined {len(parts)} file(s) into one table: {rows} row(s)")
-        label = f"{len(parts)} files"
     else:
-        chosen = choose_file(files, pattern)
-        key = chosen["key"]
-        log(f"Downloading '{key}' ({chosen.get('size', '?')} bytes)")
+        chosen = [choose_file(files, pattern)]
 
-        extension = os.path.splitext(key)[1].lower()
-        raw_path = os.path.join(workdir, "downloaded" + extension)
-        size = download(server.download_link(databank_id, key), raw_path)
-        log(f"Downloaded {size} bytes")
+    # Decide which file the next nodes read BEFORE downloading anything, so a missing choice fails fast.
+    use = pick_file_for_next_nodes(chosen, _text(ctx.config, "use_file"))
+    use_extension = os.path.splitext(use["key"])[1].lower()
+    if use_extension not in SUPPORTED_EXTENSIONS:
+        raise PlatformError(
+            f"Files of type '{use_extension or 'unknown'}' are not supported yet as input for the next nodes. "
+            f"Supported: {', '.join(SUPPORTED_EXTENSIONS)}."
+        )
 
-        rows = to_parquet(raw_path, extension, result_path, layer)
-        log(f"Converted to Parquet: {rows} row(s)")
-        label = key
+    # The originals go next to this node's output, in a folder of their own.
+    output_key = ctx.outputs[0].key
+    folder = output_key.rsplit("/", 1)[0] + "/" + ORIGINALS_FOLDER if "/" in output_key else ORIGINALS_FOLDER
+    log(f"Downloading {len(chosen)} file(s); the originals are kept in your artifacts under '{folder}/'")
+
+    size, use_path = 0, None
+    for index, item in enumerate(chosen, start=1):
+        key = item["key"]
+        raw_path = os.path.join(workdir, f"raw_{index}{os.path.splitext(key)[1].lower()}")
+        size += download(server.download_link(databank_id, key), raw_path)
+        if size > MAX_DOWNLOAD_BYTES:
+            raise PlatformError("The files together are larger than 2 GB, which this node does not download.")
+        relative = safe_relative_path(key)
+        storage.upload_file(f"{folder}/{relative}", raw_path, content_type=mimetypes.guess_type(relative)[0])
+        if item is use:
+            use_path = raw_path
+        else:
+            os.remove(raw_path)
+        if index % 25 == 0 or index == len(chosen):
+            log(f"Downloaded and saved {index} of {len(chosen)} file(s)")
+
+    try:
+        rows = to_parquet(use_path, use_extension, result_path, layer)
+    except PlatformError as error:
+        raise PlatformError(f"'{use['key']}': {error}") from error
+    log(f"'{use['key']}' is the file for the next nodes: {rows} row(s)")
 
     for out in ctx.outputs:
         log(f"Uploading to {out.path}")
         out.upload_file(result_path)
-    return {"databankId": databank_id, "file": label, "bytes": size, "rows": rows}
+    return {"databankId": databank_id, "file": use["key"], "filesSaved": len(chosen), "folder": folder, "bytes": size, "rows": rows}
 
 
 if __name__ == "__main__":

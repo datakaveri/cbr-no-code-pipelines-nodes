@@ -119,7 +119,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 class FakeOutput:
-    path = "s3://artifacts/x/result.parquet"
+    path = "s3://artifacts/user/flow/stamp/node/result.parquet"
+    key = "flow/stamp/node/result.parquet"  # relative to the user's own prefix, as the SDK gives it
 
     def __init__(self):
         self.uploaded = None
@@ -188,6 +189,11 @@ class NodeTests(unittest.TestCase):
         STATE.reset()
         self.secrets = {"PLATFORM_USERNAME": USER, "PLATFORM_PASSWORD": PASSWORD}
         self.asked_for = []
+        self.stored = {}  # what the node saved in the user's storage: key -> (bytes, content type)
+
+        def fake_upload(key, local_path, content_type=None):
+            with open(local_path, "rb") as handle:
+                self.stored[key] = (handle.read(), content_type)
 
         def fake_post_json(url, payload, **kwargs):
             self.asked_for.append(payload["name"])
@@ -197,6 +203,7 @@ class NodeTests(unittest.TestCase):
 
         for patch in (
             mock.patch.object(util, "post_json", fake_post_json),
+            mock.patch.object(main.storage, "upload_file", fake_upload),
             mock.patch.dict(os.environ, {"BACKEND_URL": "http://backend.invalid", "API_KEY": "test-key"}),
         ):
             patch.start()
@@ -254,7 +261,9 @@ class NodeTests(unittest.TestCase):
         result, _ = self.run_node()
         self.assertEqual(result["rows"], 2)
 
-    # -- all matching files ------------------------------------------------------
+    # -- the original files are kept ---------------------------------------------
+    FOLDER = "flow/stamp/node/files"
+
     def table(self, output):
         with tempfile.NamedTemporaryFile(suffix=".parquet") as tmp:
             tmp.write(output.uploaded)
@@ -262,76 +271,117 @@ class NodeTests(unittest.TestCase):
             return duckdb.sql(f"SELECT * FROM read_parquet('{tmp.name}') ORDER BY 1, 2").fetchall(), \
                 [column[0] for column in duckdb.sql(f"DESCRIBE SELECT * FROM read_parquet('{tmp.name}')").fetchall()]
 
-    def test_all_matching_files_are_stacked_with_their_source(self):
+    def originals(self):
+        return {key: data for key, (data, _) in self.stored.items()}
+
+    def test_the_original_file_is_saved_unchanged_in_a_folder_of_the_node(self):
+        result, _ = self.run_node()
+        self.assertEqual(self.originals(), {f"{self.FOLDER}/people.csv": CSV})
+        self.assertEqual(self.stored[f"{self.FOLDER}/people.csv"][1], "text/csv")
+        self.assertEqual(result["filesSaved"], 1)
+        self.assertEqual(result["folder"], self.FOLDER)
+
+    def test_the_dataset_folders_are_kept_in_the_saved_path(self):
+        STATE.files = {"in/deep/a.csv": CSV}
+        self.run_node()
+        self.assertEqual(list(self.originals()), [f"{self.FOLDER}/in/deep/a.csv"])
+
+    def test_a_parquet_original_is_saved_byte_for_byte(self):
+        with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
+            duckdb.sql(f"COPY (SELECT 7 AS n) TO '{tmp.name}' (FORMAT PARQUET)")
+        with open(tmp.name, "rb") as handle:
+            data = handle.read()
+        os.unlink(tmp.name)
+        STATE.files = {"nums.parquet": data}
+        self.run_node()
+        self.assertEqual(self.originals()[f"{self.FOLDER}/nums.parquet"], data)
+
+    # -- several files ---------------------------------------------------------------
+    def test_all_matching_files_are_saved_and_only_the_chosen_one_is_passed_on(self):
         STATE.files = {"d/a1.csv": CSV, "d/a2.csv": CSV, "d/other.jsonl": JSONL}
-        result, output = self.run_node(file_key="d/a*.csv")
+        result, output = self.run_node(file_key="d/a*.csv", use_file="d/a2.csv")
+        self.assertEqual(self.originals(), {f"{self.FOLDER}/d/a1.csv": CSV, f"{self.FOLDER}/d/a2.csv": CSV})
         rows, columns = self.table(output)
-        self.assertEqual(result["rows"], 6)
-        self.assertEqual(columns[-1], "_source_file")
-        self.assertEqual({row[-1] for row in rows}, {"d/a1.csv", "d/a2.csv"})
+        self.assertEqual(rows, [(1, "Asha", 34), (2, "Ravi", 41), (3, "Meera", 29)])  # one file's rows, not stacked
+        self.assertEqual(columns, ["id", "name", "age"])  # no _source_file column
+        self.assertEqual((result["file"], result["filesSaved"], result["rows"]), ("d/a2.csv", 2, 3))
 
-    def test_parquet_files_can_be_stacked(self):
-        files = {}
-        for index in range(3):
-            with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
-                duckdb.sql(f"COPY (SELECT {index} AS n, 'x' AS tag) TO '{tmp.name}' (FORMAT PARQUET)")
-            with open(tmp.name, "rb") as handle:
-                files[f"part{index}.parquet"] = handle.read()
-            os.unlink(tmp.name)
-        STATE.files = files
-        result, output = self.run_node(file_key="*")
-        rows, columns = self.table(output)
-        self.assertEqual([row[0] for row in rows], [0, 1, 2])
-        self.assertEqual(columns, ["n", "tag", "_source_file"])
+    def test_a_bare_file_name_is_enough_when_it_is_unambiguous(self):
+        STATE.files = {"d/a.csv": CSV, "d/b.jsonl": JSONL}
+        result, output = self.run_node(file_key="d/", use_file="b.jsonl")
+        self.assertEqual(rows_of(output.uploaded), [(1, "Bengaluru"), (2, "Mysuru")])
+        self.assertEqual(result["file"], "d/b.jsonl")
 
-    def test_a_folder_prefix_picks_the_files_in_it(self):
+    def test_a_bare_file_name_that_fits_two_files_is_refused(self):
+        STATE.files = {"x/a.csv": CSV, "y/a.csv": CSV}
+        with self.assertRaises(main.PlatformError) as caught:
+            self.run_node(file_key="*", use_file="a.csv")
+        self.assertIn("x/a.csv", str(caught.exception))
+        self.assertIn("y/a.csv", str(caught.exception))
+
+    def test_several_files_without_a_file_for_the_next_nodes_fail_before_downloading(self):
+        STATE.files = {"a.csv": CSV, "b.csv": CSV}
+        with self.assertRaises(main.PlatformError) as caught:
+            self.run_node(file_key="*")
+        self.assertIn("File for the next nodes", str(caught.exception))
+        self.assertIn("a.csv", str(caught.exception))
+        self.assertEqual(self.stored, {})
+        self.assertFalse([path for path in STATE.requests if path.endswith("/files/download")])
+
+    def test_a_file_for_the_next_nodes_that_was_not_downloaded_lists_the_files(self):
+        STATE.files = {"a.csv": CSV, "b.csv": CSV}
+        with self.assertRaises(main.PlatformError) as caught:
+            self.run_node(file_key="*", use_file="zzz.csv")
+        self.assertIn("a.csv", str(caught.exception))
+        self.assertEqual(self.stored, {})
+
+    def test_a_folder_prefix_downloads_the_files_in_it(self):
         STATE.files = {"in/a.csv": CSV, "out/b.csv": CSV}
         result, _ = self.run_node(file_key="in/")
+        self.assertEqual(list(self.originals()), [f"{self.FOLDER}/in/a.csv"])
         self.assertEqual(result["rows"], 3)
 
-    def test_a_single_star_takes_everything_and_mixed_types_work(self):
-        STATE.files = {"a.csv": CSV, "b.jsonl": JSONL}
-        result, output = self.run_node(file_key="*")
-        rows, columns = self.table(output)
-        self.assertEqual(result["rows"], 5)
-        self.assertEqual(set(columns), {"id", "name", "age", "city", "_source_file"})
+    def test_files_that_cannot_be_read_are_still_saved_when_they_are_not_the_chosen_one(self):
+        STATE.files = {"a.csv": CSV, "photo.png": b"\x89PNG not a table"}
+        result, _ = self.run_node(file_key="*", use_file="a.csv")
+        self.assertEqual(set(self.originals()), {f"{self.FOLDER}/a.csv", f"{self.FOLDER}/photo.png"})
+        self.assertEqual(result["rows"], 3)
 
-    def test_many_files_are_loaded(self):
+    def test_many_files_are_saved(self):
         STATE.files = {f"p{index:03}.csv": CSV for index in range(120)}
-        result, _ = self.run_node(file_key="*")
-        self.assertEqual(result["rows"], 360)
+        result, _ = self.run_node(file_key="*", use_file="p007.csv")
+        self.assertEqual(len(self.originals()), 120)
+        self.assertEqual(result["rows"], 3)
 
     def test_too_many_matching_files_stops_with_a_message(self):
         STATE.files = {f"p{index}.csv": CSV for index in range(5)}
         with self.assertRaises(main.PlatformError) as caught:
             self.run_node(file_key="*", max_files=3)
         self.assertIn("more than the limit of 3", str(caught.exception))
+        self.assertEqual(self.stored, {})
 
     def test_a_pattern_that_matches_nothing_lists_the_files(self):
         with self.assertRaises(main.PlatformError) as caught:
             self.run_node(file_key="zzz*")
         self.assertIn("people.csv", str(caught.exception))
 
-    def test_a_star_pattern_loads_several_files_without_the_switch(self):
-        STATE.files = {"d/a1.csv": CSV, "d/a2.csv": CSV, "d/x.jsonl": JSONL}
-        result, _ = self.run_node(file_key="d/a*.csv")
-        self.assertEqual(result["rows"], 6)
-
-    def test_a_single_star_means_every_file(self):
-        STATE.files = {"a.csv": CSV, "b.csv": CSV}
-        result, _ = self.run_node(file_key="*")
-        self.assertEqual(result["rows"], 6)
-
-    def test_a_folder_loads_its_files_without_the_switch(self):
-        STATE.files = {"in/a.csv": CSV, "out/b.csv": CSV}
-        result, _ = self.run_node(file_key="in/")
-        self.assertEqual(result["rows"], 3)
-
-    def test_a_bad_file_among_many_is_named(self):
+    def test_a_bad_chosen_file_is_named(self):
         STATE.files = {"a.csv": CSV, "b.gpkg": b"not a geopackage"}
         with self.assertRaises(main.PlatformError) as caught:
-            self.run_node(file_key="*")
+            self.run_node(file_key="*", use_file="b.gpkg")
         self.assertIn("'b.gpkg'", str(caught.exception))
+
+    def test_two_dots_in_a_file_name_are_replaced_because_the_storage_refuses_them(self):
+        STATE.files = {"d/report..2026.csv": CSV}
+        self.run_node()
+        self.assertEqual(list(self.originals()), [f"{self.FOLDER}/d/report_2026.csv"])
+
+    def test_a_file_name_that_climbs_out_of_the_folder_is_refused(self):
+        STATE.files = {"../evil.csv": CSV}
+        with self.assertRaises(main.PlatformError) as caught:
+            self.run_node()
+        self.assertIn("cannot be stored", str(caught.exception))
+        self.assertEqual(self.stored, {})
 
     # -- GeoPackage ----------------------------------------------------------------
     def test_a_geopackage_becomes_rows_with_wgs84_geojson(self):

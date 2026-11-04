@@ -1,8 +1,9 @@
 # Platform File Source
 
-A source node for the no-code editor. It logs in to the platform **as you**, downloads one
-file from a dataset (databank) through the platform's file server, and writes it as Parquet
-so the next nodes (SQL, Superset, ...) can use it.
+A source node for the no-code editor (the "data access node"). It logs in to the platform **as you**,
+downloads files from a dataset (databank) through the platform's file server and **keeps the original
+files, unchanged, in one folder of your artifacts** (you can see it in the File Browser). One of them
+is also written as Parquet, so the next nodes (SQL, Superset, ...) can use it.
 
 ## Use it
 
@@ -11,17 +12,24 @@ so the next nodes (SQL, Superset, ...) can use it.
    - `PLATFORM_PASSWORD` – your platform password
 2. Add the node, then fill in:
    - **Dataset (databank) ID** – the id in the dataset's page address.
-   - **File path in the dataset** – needed only when the dataset has more than one file.
-3. Run. The output is `result.parquet`.
+   - **File path in the dataset** – needed only when the dataset has more than one file. A pattern, a folder or `*` downloads several.
+   - **File for the next nodes** – which downloaded file the next nodes work on (for example `people.csv`). Leave it empty when only one file is downloaded; it is required when several are.
+3. Run. The originals are saved in your artifacts at
+   `<pipeline>/<run time>/<node name>/files/<path in the dataset>`, and the output of the node is
+   `result.parquet`, made from the file you chose.
 
 Supported files: CSV, JSON / JSON-lines, GeoJSON, GeoPackage (`.gpkg`) and Parquet. For the map formats each feature becomes
 a row and its shape goes into a `geometry` column as GeoJSON text in WGS84 (longitude, latitude); a GeoPackage in another
 coordinate system is converted. A GeoPackage with several layers needs the **Layer name** field. Other types give a clear
 "not supported yet" error. Files larger than 2 GB are refused (500 MB for one GeoJSON file).
 
-**Many files:** put a pattern (`2026-09-*.parquet`, `data/*.csv`), a folder (`data/`) or `*` (every file) in the file path.
-The files are stacked into one table (columns matched by name) with an extra
-`_source_file` column. **Most files to load** (default 500) stops runaway selections.
+**Many files:** put a pattern (`2026-09-*.parquet`, `data/*.csv`), a folder (`data/`) or `*` (every file)
+in the file path. Every matching file is saved untouched in the `files` folder, with its folders from the
+dataset kept. Files are **not** combined into one table: name the one the next nodes should read in
+**File for the next nodes**. The node checks that choice before downloading anything. **Most files to
+download** (default 500) stops runaway selections. Files that cannot be read as a table (images, ...) are
+still saved; they just cannot be the file for the next nodes. A file name with two dots in a row
+(`report..csv`) is stored as `report_csv`, because the storage does not accept `..`.
 
 ## What it does
 
@@ -31,8 +39,10 @@ The files are stacked into one table (columns matched by name) with an extra
    logs in once more.
 3. `POST /v1/databanks/{id}/files` – lists files; `POST /v1/databanks/{id}/files/download`
    – gets a temporary download link; the file is streamed from that link.
-4. CSV / JSON are converted with DuckDB; Parquet is kept as it is; the result is uploaded
-   through the editor's storage (the pod holds no storage credentials).
+4. Each original is uploaded as it is, through the editor's storage (the pod holds no storage
+   credentials), into the node's `files` folder.
+5. The chosen file is converted with DuckDB (CSV / JSON / GeoJSON / GeoPackage; Parquet is kept as it is)
+   and uploaded as `result.parquet`.
 
 The password and token are never logged or written to the output.
 
@@ -42,8 +52,9 @@ The password and token are never logged or written to the output.
 |---|---|---|
 | `name` | yes | Node name (snake_case) |
 | `databank_id` | yes | Dataset id |
-| `file_key` | no | File path inside the dataset, or a pattern / folder / `*` to load several files |
-| `max_files` | no | Most files a pattern may load (default 500) |
+| `file_key` | no | File path inside the dataset, or a pattern / folder / `*` to download several files |
+| `use_file` | when several files | The downloaded file the next nodes read (full path, or just the name if unambiguous) |
+| `max_files` | no | Most files a pattern may download (default 500) |
 | `layer` | no | GeoPackage layer name, needed when the file has several |
 | `username_secret` / `password_secret` | no | Names of the secrets (defaults above) |
 | `file_server_url` / `token_url` | no | Override the platform addresses (for other deployments) |
