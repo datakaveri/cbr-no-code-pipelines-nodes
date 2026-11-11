@@ -64,13 +64,13 @@ The password and token are never logged or written to the output.
 The tests run against a mock login and file server and need no network:
 
 ```
-cd platform-file-source
-docker build -t platform-file-source:test .
-docker run --rm -v "$PWD/tests:/app/tests:ro" platform-file-source:test python -m unittest discover -s tests -v
+cd data-access-node
+docker build -t data-access-node:test .
+docker run --rm -v "$PWD/tests:/app/tests:ro" data-access-node:test python -m unittest discover -s tests -v
 ```
 
 ## Build on the platform
 
 Images page, new image: repository `https://github.com/pradeep800/pipelines-nodes`, branch `main`,
-Dockerfile path `Dockerfile`, Docker context `platform-file-source` (the same values as in `image.json`).
+Dockerfile path `Dockerfile`, Docker context `data-access-node` (the same values as in `image.json`).
 Then Nodes page, add node, paste `node.json` and choose that image.

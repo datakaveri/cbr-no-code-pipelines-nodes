@@ -15,7 +15,7 @@
       "description": "Unique identifier for this source node in the pipeline",
       "required": true,
       "unique": true,
-      "placeholder": "e.g. platform_file",
+      "placeholder": "e.g. data_access",
       "validation": {
         "patternKey": "snake_case"
       }
