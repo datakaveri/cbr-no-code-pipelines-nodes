@@ -33,7 +33,7 @@ import duckdb
 from pipeline_sdk import context, env, storage
 from pipeline_sdk.context import log
 
-NODE_VERSION = "2026-11-05.1"
+NODE_VERSION = "2026-11-11.1"
 
 DEFAULT_TOKEN_URL = "https://platform.iudx.io/auth/realms/iudx/protocol/openid-connect/token"
 DEFAULT_FILE_SERVER = "https://platform.iudx.io/files-connect-api/v1"
@@ -482,4 +482,4 @@ def handler(ctx: context.NodeContext, workdir: str):
 
 
 if __name__ == "__main__":
-    context.run(handler, prefix="[PLATFORM FILE]")
+    context.run(handler, prefix="[DATA ACCESS]")
