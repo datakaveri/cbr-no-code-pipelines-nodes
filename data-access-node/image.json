@@ -4,5 +4,5 @@
   "githubUrl": "https://github.com/pradeep800/pipelines-nodes",
   "githubRef": "main",
   "dockerfilePath": "Dockerfile",
-  "dockerContext": "platform-file-source"
+  "dockerContext": "data-access-node"
 }
