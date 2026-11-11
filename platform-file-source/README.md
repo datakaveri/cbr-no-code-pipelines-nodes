@@ -1,4 +1,4 @@
-# Platform File Source
+# Data Access Node
 
 A source node for the no-code editor (the "data access node"). It logs in to the platform **as you**,
 downloads files from a dataset (databank) through the platform's file server and **keeps the original
