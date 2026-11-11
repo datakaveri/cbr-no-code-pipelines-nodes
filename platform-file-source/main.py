@@ -1,4 +1,4 @@
-"""Platform File Source (Storage v2).
+"""Data Access Node (Storage v2).
 
 A source node (no upstream input). It logs in to the platform as the user,
 downloads the file(s) it is asked for from a dataset's databank through the
@@ -33,7 +33,7 @@ import duckdb
 from pipeline_sdk import context, env, storage
 from pipeline_sdk.context import log
 
-NODE_VERSION = "2026-11-04.1"
+NODE_VERSION = "2026-11-05.1"
 
 DEFAULT_TOKEN_URL = "https://platform.iudx.io/auth/realms/iudx/protocol/openid-connect/token"
 DEFAULT_FILE_SERVER = "https://platform.iudx.io/files-connect-api/v1"
@@ -395,7 +395,7 @@ def _text(config, name, default=""):
 
 
 def handler(ctx: context.NodeContext, workdir: str):
-    log(f"Platform file source, version {NODE_VERSION}")
+    log(f"Data access node, version {NODE_VERSION}")
     databank_id = _text(ctx.config, "databank_id")
     if not databank_id:
         raise PlatformError("'Dataset (databank) ID' is required.")

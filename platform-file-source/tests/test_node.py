@@ -1,4 +1,4 @@
-"""Tests for the platform file source node against a mock login + file server.
+"""Tests for the data access node against a mock login + file server.
 
 The mock follows the documented platform calls:
   POST /auth/.../token                     (password login -> access_token)

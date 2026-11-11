@@ -1,5 +1,5 @@
 {
-  "name": "Platform File Source Image",
+  "name": "Data Access Node Image",
   "description": "Logs in as you, downloads files from a platform dataset through the file server, keeps the originals in your artifacts and passes one of them on as Parquet",
   "githubUrl": "https://github.com/pradeep800/pipelines-nodes",
   "githubRef": "main",

@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "nodeType": "processing",
-  "name": "Platform File Source",
+  "name": "Data Access Node",
   "shortDescription": "Download files from a platform dataset (databank) into your artifacts and pass one of them on as Parquet",
   "description": "Logs in to the platform with your own account (username and password stored as secrets in Settings, Secrets), downloads files from a platform dataset's databank through the file server, and keeps the original files, unchanged, in one folder of your artifacts (you can see it in the File Browser). One of the files, the only one or the one you name in 'File for the next nodes', is also written as a Parquet file for the next nodes. Supports CSV, JSON, GeoJSON, GeoPackage and Parquet files for that step (shapes become a geometry column of GeoJSON text). Give the dataset (databank) ID, and the file's path inside it when the databank holds more than one file. Use a * pattern or a folder in the file path to download several files.",
   "lucideIcon": "CloudDownload",
